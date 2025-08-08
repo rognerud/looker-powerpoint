@@ -1,10 +1,15 @@
 # Byte-compiled / optimized / DLL files
+~$*
+*.pptx
+.DS_Store
+.env
 __pycache__/
 *.py[codz]
 *$py.class
-
+dir*
 # C extensions
 *.so
+output/
 
 # Distribution / packaging
 .Python
