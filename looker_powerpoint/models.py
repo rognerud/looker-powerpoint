@@ -8,7 +8,7 @@ class LookerReference(BaseModel):
     """
 
     look_id: str
-    result_format: str = "json_bi"  # Default result format
+    result_format: str = Field(default="json_bi")  # Default result format
     apply_formatting: bool = Field(
         default=False, description="Apply model-specified formatting to each result."
     )

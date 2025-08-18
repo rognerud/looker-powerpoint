@@ -15,6 +15,7 @@ import re
 import argparse
 from rich_argparse import RichHelpFormatter
 import logging
+
 from rich.logging import RichHandler
 import os
 import asyncio
@@ -326,16 +327,15 @@ class Cli:
         references = get_presentation_objects_with_descriptions(file_path)
         if not references:
             logging.error(
-                "No shapes with look_id found in the presentation. Add a look_id : <look_id> to the alternative text of a shape to use it in the presentation."
+                "No shapes with look_id found in the presentation. Add a look_id : <look_id> to the alternative text of a shape to load data into the shape."
             )
             return
 
         for ref in references:
             try:
-                LookerShape(**ref)
                 self.looker_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
-                logging.error(f"Validation error for shape {ref['shape_id']}: {e}")
+                logging.error(f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}")
                 continue
 
         asyncio.run(self.get_looks())
@@ -355,12 +355,12 @@ class Cli:
                         looker_shape.original_integration,
                     )
 
-                elif looker_shape.shape_type == "TABLE":
-                    slide = presentation.slides[looker_shape.slide_number]
+                df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
+                    ""
+                )
 
-                    df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
-                        ""
-                    )
+                if looker_shape.shape_type == "TABLE":
+                    slide = presentation.slides[looker_shape.slide_number]
 
                     for shape in slide.shapes:
                         if shape.shape_id == looker_shape.shape_number:
@@ -368,50 +368,44 @@ class Cli:
 
                     self._fill_table(chart_shape.table, df)
 
-                elif looker_shape.shape_type == "TEXT_BOX":
+                elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
                     slide = presentation.slides[looker_shape.slide_number]
 
                     for shape in slide.shapes:
                         if shape.shape_id == looker_shape.shape_number:
                             text_shape = shape
-                            text_shape.text = result
+                            text_shape.text = df[0][0]
 
-                elif looker_shape.shape_type == "AUTO_SHAPE":
-                    slide = presentation.slides[looker_shape.slide_number]
+                elif looker_shape.shape_type == "CHART":
+                        chart_data = CategoryChartData()
+                        chart_data.categories = df.iloc[
+                            :, 0
+                        ].tolist()  # Assuming the first column contains categories
 
-                    for shape in slide.shapes:
-                        if shape.shape_id == looker_shape.shape_number:
-                            auto_shape = shape
-                            auto_shape.text = result
+                        for series_name in df.columns[1:]:
+                            match = (
+                                re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
+                                .group(1)
+                                .replace(".", " - ")
+                            )
 
-                else:  # model.result_format == "json_bi":
-                    df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
-                        ""
+                            chart_data.add_series(match, df[series_name])
+                            # print(match)
+
+                        slide = presentation.slides[looker_shape.slide_number]
+                        for shape in slide.shapes:
+                            if shape.shape_id == looker_shape.shape_number:
+                                chart_shape = shape
+
+                        # Replace chart data (assumes the shape is a chart)
+                        chart = chart_shape.chart
+                        chart.replace_data(chart_data)
+                
+                else:
+                    logging.error(
+                        f"Unsupported shape type {looker_shape.shape_type} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}."
                     )
-
-                    chart_data = CategoryChartData()
-                    chart_data.categories = df.iloc[
-                        :, 0
-                    ].tolist()  # Assuming the first column contains categories
-
-                    for series_name in df.columns[1:]:
-                        match = (
-                            re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
-                            .group(1)
-                            .replace(".", " - ")
-                        )
-
-                        chart_data.add_series(match, df[series_name])
-                        # print(match)
-
-                    slide = presentation.slides[looker_shape.slide_number]
-                    for shape in slide.shapes:
-                        if shape.shape_id == looker_shape.shape_number:
-                            chart_shape = shape
-
-                    # Replace chart data (assumes the shape is a chart)
-                    chart = chart_shape.chart
-                    chart.replace_data(chart_data)
+                    continue
 
             except Exception as e:
                 logging.error(f"Error processing reference {looker_shape}: {e}")
@@ -440,6 +434,7 @@ class Cli:
             except Exception as e:
                 try:
                     subprocess.Popen(["open", self.destination])  # For macOS
+                    logging.info(f"Opened {self.destination} in PowerPoint.")
                 except Exception as e:
                     logging.error(f"Failed to open the PowerPoint file: {e}")
                     logging.info(f"You can find the file at {self.destination}.")
