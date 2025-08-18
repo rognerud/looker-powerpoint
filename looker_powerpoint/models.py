@@ -8,6 +8,8 @@ class LookerReference(BaseModel):
     """
 
     look_id: str
+    filter: str = Field(default=None, description="dimension to filter on")
+
     result_format: str = Field(default="json_bi")  # Default result format
     apply_formatting: bool = Field(
         default=False, description="Apply model-specified formatting to each result."
@@ -16,7 +18,7 @@ class LookerReference(BaseModel):
         default=True, description="Apply visualization options to results."
     )
     image_width: int = Field(default=None, description="Width of the image in pixels")
-    image_height: int = Field(default=None, description="Height of the image in pixels")
+    image_height: int = Field(default=None, description="Height of the image in pixels") 
     # optional parameters for the Look (Default to None)
 
     @field_validator("look_id", mode="before")

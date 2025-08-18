@@ -1,5 +1,5 @@
 [project]
-name = "looker-powerpoint"
+name = "looker_powerpoint"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["looker_loader"]
+packages = ["looker_powerpoint"]
 
 [project.scripts]
 lppt = "looker_powerpoint.cli:main"

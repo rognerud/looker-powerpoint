@@ -133,6 +133,14 @@ class Cli:
             default=False,
         )
 
+        parser.add_argument(
+            "--filter",
+            help="""use the string to filter shapes if they have a set filter dimension""",
+            action="store",
+            default=None,
+            type=str,
+        )
+
         return parser
 
     def _fill_table(self, table, df):
@@ -228,6 +236,13 @@ class Cli:
         circle.line.color.rgb = RGBColor(*line_color_rgb)
         circle.line.width = Pt(line_width_pt)
 
+        self._set_alt_text(
+            circle,
+            {
+                "parent_shape_id": shape.shape_id,
+            },
+        )
+
     def _replace_image_with_object(
         self, prs, slide_index, shape_index, image_stream, integration
     ):
@@ -265,7 +280,7 @@ class Cli:
         )
         self._set_alt_text(picture, integration)
 
-    async def _async_fetch_look(self, shape_id, **kwargs):
+    async def _async_fetch_look(self, shape_id, filter_value=None, **kwargs):
         """
         Asynchronously fetch a Looker look by its ID.
         Args:
@@ -273,14 +288,14 @@ class Cli:
         Returns:
             The fetched look data.
         """
-        return await self.client.get_look(shape_id, **dict(kwargs))
+        return await self.client.get_look(shape_id, filter_value=filter_value, **dict(kwargs))
 
     async def get_looks(self):
         """
         asyncronously fetch a list of look references
         """
         tasks = [
-            self._async_fetch_look(shape.shape_id, **dict(shape.integration))
+            self._async_fetch_look(shape.shape_id, self.args.filter, **dict(shape.integration))
             for shape in self.looker_shapes
         ]
 
