@@ -244,7 +244,7 @@ class Cli:
         )
 
     def _replace_image_with_object(
-        self, prs, slide_index, shape_index, image_stream, integration
+        self, prs, slide_index, shape_number, image_stream, integration
     ):
         """
         Replaces an existing image in a PowerPoint slide with a new image from a stream.
@@ -259,8 +259,15 @@ class Cli:
         slide = prs.slides[slide_index]
         old_shape = None
         for shape in slide.shapes:
-            if shape.shape_id == shape_index:
+            if shape.shape_id == shape_number:
                 old_shape = shape
+
+        if old_shape is None:
+            for shape in slide.shapes:
+                logging.warning(
+                    f"Shape numbers on slide {slide_index}: {shape.shape_number} (type: {shape.shape_type})"
+                )
+            raise ValueError(f"Shape with number {shape_number} not found on slide {slide_index}.")
 
         if not old_shape.shape_type == 13:  # 13 = PICTURE
             raise ValueError("Selected shape is not an image.")
@@ -294,6 +301,7 @@ class Cli:
         """
         asyncronously fetch a list of look references
         """
+        logging.info(f"Fetching {len(self.looker_shapes)} looks from Looker...")
         tasks = [
             self._async_fetch_look(shape.shape_id, self.args.filter, **dict(shape.integration))
             for shape in self.looker_shapes
@@ -342,7 +350,7 @@ class Cli:
         references = get_presentation_objects_with_descriptions(file_path)
         if not references:
             logging.error(
-                "No shapes with look_id found in the presentation. Add a look_id : <look_id> to the alternative text of a shape to load data into the shape."
+                "No shapes with look_id found in the presentation. Add a 'look_id' : '<look_id>' to the alternative text of a shape to load data into the shape."
             )
             return
 
@@ -359,76 +367,76 @@ class Cli:
 
         for looker_shape in self.looker_shapes:
             result = self.data.get(looker_shape.shape_id)
-            try:
-                if looker_shape.shape_type == "PICTURE":
-                    image_stream = BytesIO(result)
-                    self._replace_image_with_object(
-                        presentation,
-                        looker_shape.slide_number,
-                        looker_shape.id,
-                        image_stream,
-                        looker_shape.original_integration,
-                    )
-
-                df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
-                    ""
+            # try:
+            if looker_shape.shape_type == "PICTURE":
+                image_stream = BytesIO(result)
+                self._replace_image_with_object(
+                    presentation,
+                    looker_shape.slide_number,
+                    looker_shape.shape_number,
+                    image_stream,
+                    looker_shape.integration,
                 )
 
-                if looker_shape.shape_type == "TABLE":
-                    slide = presentation.slides[looker_shape.slide_number]
+            df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
+                ""
+            )
 
+            if looker_shape.shape_type == "TABLE":
+                slide = presentation.slides[looker_shape.slide_number]
+
+                for shape in slide.shapes:
+                    if shape.shape_id == looker_shape.shape_number:
+                        chart_shape = shape
+
+                self._fill_table(chart_shape.table, df)
+
+            elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
+                slide = presentation.slides[looker_shape.slide_number]
+
+                for shape in slide.shapes:
+                    if shape.shape_id == looker_shape.shape_number:
+                        text_shape = shape
+                        text_shape.text = df[0][0]
+
+            elif looker_shape.shape_type == "CHART":
+                    chart_data = CategoryChartData()
+                    chart_data.categories = df.iloc[
+                        :, 0
+                    ].tolist()  # Assuming the first column contains categories
+
+                    for series_name in df.columns[1:]:
+                        match = (
+                            re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
+                            .group(1)
+                            .replace(".", " - ")
+                        )
+
+                        chart_data.add_series(match, df[series_name])
+                        # print(match)
+
+                    slide = presentation.slides[looker_shape.slide_number]
                     for shape in slide.shapes:
                         if shape.shape_id == looker_shape.shape_number:
                             chart_shape = shape
 
-                    self._fill_table(chart_shape.table, df)
+                    # Replace chart data (assumes the shape is a chart)
+                    chart = chart_shape.chart
+                    chart.replace_data(chart_data)
+            
+            else:
+                logging.error(
+                    f"Unsupported shape type {looker_shape.shape_type} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}."
+                )
+                continue
 
-                elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
-                    slide = presentation.slides[looker_shape.slide_number]
-
-                    for shape in slide.shapes:
-                        if shape.shape_id == looker_shape.shape_number:
-                            text_shape = shape
-                            text_shape.text = df[0][0]
-
-                elif looker_shape.shape_type == "CHART":
-                        chart_data = CategoryChartData()
-                        chart_data.categories = df.iloc[
-                            :, 0
-                        ].tolist()  # Assuming the first column contains categories
-
-                        for series_name in df.columns[1:]:
-                            match = (
-                                re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
-                                .group(1)
-                                .replace(".", " - ")
-                            )
-
-                            chart_data.add_series(match, df[series_name])
-                            # print(match)
-
-                        slide = presentation.slides[looker_shape.slide_number]
-                        for shape in slide.shapes:
-                            if shape.shape_id == looker_shape.shape_number:
-                                chart_shape = shape
-
-                        # Replace chart data (assumes the shape is a chart)
-                        chart = chart_shape.chart
-                        chart.replace_data(chart_data)
-                
-                else:
-                    logging.error(
-                        f"Unsupported shape type {looker_shape.shape_type} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}."
-                    )
-                    continue
-
-            except Exception as e:
-                logging.error(f"Error processing reference {looker_shape}: {e}")
-                if not self.args.hide_errors:
-                    slide = presentation.slides[looker_shape.slide_number]
-                    for shape in slide.shapes:
-                        if shape.shape_id == looker_shape.shape_number:
-                            self._mark_failure(slide, shape)
+            # except Exception as e:
+            #     logging.error(f"Error processing reference {looker_shape}: {e}")
+            #     if not self.args.hide_errors:
+            #         slide = presentation.slides[looker_shape.slide_number]
+            #         for shape in slide.shapes:
+            #             if shape.shape_id == looker_shape.shape_number:
+            #                 self._mark_failure(slide, shape)
 
         if self.args.self:
             self.destination = file_path

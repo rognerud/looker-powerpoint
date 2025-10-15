@@ -42,6 +42,10 @@ class LookerShape(BaseModel):
     shape_width: int = Field(default=None)  # Width in pixels
     shape_height: int = Field(default=None)  # Height in pixels
     integration: LookerReference
+    original_integration: LookerReference = Field(
+        default=None,
+        description="The original integration data before any modifications.",
+    )
     shape_number: int = Field(
         default=None, description="The number of the shape in the slide."
     )

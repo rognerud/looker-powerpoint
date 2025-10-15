@@ -65,7 +65,7 @@ class LookerClient:
                 visible_ui_sections=q.visible_ui_sections,
             )
 
-            result_format = "json_bi"
+            result_format = kwargs.get("result_format", "json_bi")
 
             response = self.client.run_inline_query(
                 result_format=result_format, body=request
