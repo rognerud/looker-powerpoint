@@ -1,6 +1,7 @@
 from pptx import Presentation
 from lxml import etree
 import yaml
+import logging
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
@@ -27,7 +28,12 @@ def extract_alt_text(shape):
             descr = cNvPr_elements[0].get("descr")
             if descr:
                 data = yaml.safe_load(descr)  # Use safe_load for untrusted sources
-
+                # make all data lowercase
+                # try:
+                #     data = {k: v.lower() for k, v in data.items() if isinstance(v, str)}
+                # except Exception as e:
+                #     logging.error(f"Error processing description for shape {shape.shape_id}: {e}")
+                #     return None
                 return data
     return None
 

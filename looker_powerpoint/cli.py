@@ -236,7 +236,8 @@ class Cli:
         xml_elem = etree.fromstring(xml_str)
         import yaml
         # convert pydantic model to dict
-        data = data.model_dump()
+        if isinstance(data, dict) is False:
+            data = data.model_dump()
         data = {k: v for k, v in data.items() if v is not None}
         data = yaml.dump(data)
 
@@ -450,15 +451,6 @@ class Cli:
                 result = self.data.get(looker_shape.shape_id)
                 if result is None:
                     result = self.data.get(looker_shape.integration.id)
-                    # write the result to a local file for debugging
-                    with open(f"debug_{looker_shape.shape_id}.json", "w") as f:
-                        # with formatted json
-                        json.dump(json.loads(result), f, indent=4)
-                else:
-                    # write the result to a local file for debugging
-                    with open(f"debug_{looker_shape.shape_id}.json", "w") as f:
-                        # with formatted json
-                        json.dump(json.loads(result), f, indent=4)
 
                 try:
                     if looker_shape.shape_type == "PICTURE":
