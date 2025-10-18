@@ -24,6 +24,7 @@ import os
 import asyncio
 from io import BytesIO
 from pptx.dml.color import RGBColor
+from itertools import zip_longest
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
@@ -182,7 +183,7 @@ class Cli:
 
         return parser
 
-    def _fill_table(self, table, df):
+    def _fill_table(self, table, df, headers=True):
         """
         Fills a PowerPoint table with data from a DataFrame.
 
@@ -204,8 +205,9 @@ class Cli:
         cols_to_fill = min(table_cols, df_cols)
 
         # Fill header row
-        for col_idx in range(cols_to_fill):
-            table.cell(0, col_idx).text = str(df.columns[col_idx])
+        if headers:
+            for col_idx in range(cols_to_fill):
+                table.cell(0, col_idx).text = str(df.columns[col_idx])
 
         # Fill DataFrame values
         for row_idx in range(1, rows_to_fill):  # skip header row
@@ -232,6 +234,13 @@ class Cli:
         """
         xml_str = shape.element.xml
         xml_elem = etree.fromstring(xml_str)
+        import yaml
+        # convert pydantic model to dict
+        data = data.model_dump()
+        data = {k: v for k, v in data.items() if v is not None}
+        data = yaml.dump(data)
+
+        # remove None values from data, and convert to string with newlines for YAML compatibility
 
         for path in [
             ".//p:nvSpPr/p:cNvPr",
@@ -369,7 +378,7 @@ class Cli:
             f"{item['name']}.value": item.get("field_group_variant", item['name']).strip()
             for item in all_fields
         }
-        logging.info(f"Header mapping: {mappy}")
+        logging.debug(f"Header mapping: {mappy}")
         # Create DataFrame
         df = pd.json_normalize(data.get("rows", [])).fillna("")
 
@@ -467,7 +476,7 @@ class Cli:
                             looker_shape.slide_number,
                             looker_shape.shape_number,
                             image_stream,
-                            looker_shape.integration,
+                            looker_shape.original_integration,
                         )
                     elif looker_shape.shape_type == "TABLE":
                         logging.info(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
@@ -478,7 +487,7 @@ class Cli:
                             if shape.shape_id == looker_shape.shape_number:
                                 chart_shape = shape
 
-                        self._fill_table(chart_shape.table, df)
+                        self._fill_table(chart_shape.table, df, looker_shape.integration.headers)
 
                     elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
                         logging.info(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
@@ -498,22 +507,42 @@ class Cli:
                                 text_shape.text = str(text_to_insert)
 
                     elif looker_shape.shape_type == "CHART":
-                        df = self._make_df(result)
-                        chart_data = CategoryChartData()
-                        chart_data.categories = df.iloc[
-                            :, 0
-                        ].tolist()  # Assuming the first column contains categories
-
-                        for series_name in df.columns[1:]:
-                            chart_data.add_series(series_name, df[series_name])
 
                         slide = self.presentation.slides[looker_shape.slide_number]
                         for shape in slide.shapes:
                             if shape.shape_id == looker_shape.shape_number:
                                 chart_shape = shape
 
-                        # Replace chart data (assumes the shape is a chart)
+                        df = self._make_df(result)
+                        chart_data = CategoryChartData()
+                        chart_data.categories = df.iloc[
+                            :, 0
+                        ].tolist()  # Assuming the first column contains categories
                         chart = chart_shape.chart
+                        existing_chart_data = chart.plots[0].series
+                        logging.debug(f"Existing chart series: {[s.name for s in existing_chart_data]}")
+
+                        if looker_shape.integration.headers:
+                            for series_name in df.columns[1:]:
+                                try:
+                                    match = (
+                                        re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
+                                        .group(1)
+                                        .replace(".", " - ")
+                                        .strip()
+                                        .replace("|FIELD|", " ")
+                                    )
+                                except Exception as e:
+                                    logging.error(f"Error parsing series name {series_name}: {e}")
+                                    match = series_name
+                                chart_data.add_series(match, df[series_name])
+                        else:
+                            if len(df.columns[1:]) != len(existing_chart_data):
+                                logging.warning(
+                                    f"{looker_shape.shape_id}. Missing headers! Number of series ({len(df.columns[1:])}) does not match number of existing chart series ({len(existing_chart_data)}). Perhaps you need to enable headers in the integration settings?"
+                                )
+                            for series_name, series in zip(df.columns[1:], existing_chart_data):
+                                chart_data.add_series(series.name, df[series_name])
                         chart.replace_data(chart_data)
 
                     else:

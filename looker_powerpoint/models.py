@@ -32,6 +32,12 @@ class LookerReference(BaseModel):
     apply_vis: bool = Field(
         default=True, description="Apply visualization options to results."
     )
+    server_table_calcs: bool = Field(
+        default=True, description="Whether to compute table calculations on the server."
+    )
+    headers: bool = Field(
+        default=True, description="Whether to include column headers in the results."
+    )
     image_width: int = Field(default=None, description="Width of the image in pixels")
     image_height: int = Field(default=None, description="Height of the image in pixels") 
     # optional parameters for the Look (Default to None)
@@ -74,9 +80,9 @@ class LookerShape(BaseModel):
         """Push down relevant data from the integration to the shape model."""
         # push down
         # if picture is shape type, then we need to push down the image width and height
+        data["original_integration"] = data["integration"]
 
         if data["shape_type"] == "PICTURE":
-            data["original_integration"] = data["integration"]
             if data["integration"].get("result_format") is None:
                 data["integration"]["result_format"] = "jpg"
             data["integration"]["image_width"] = round(data["shape_width"])
