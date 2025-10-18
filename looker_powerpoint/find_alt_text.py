@@ -62,9 +62,14 @@ def get_presentation_objects_with_descriptions(pptx_path):
             height_px = emu_to_pixels(shape.height)
 
             if description:
+                if description.get("meta_name"):
+                    shape_id = description["meta_name"]
+                else:
+                    shape_id = f"{i},{shape.shape_id}"  # Use shape number for identification
+
                 objects_with_descriptions.append(
                     {
-                        "shape_id": f"{i},{shape.shape_id}",  # Use shape number for identification
+                        "shape_id": shape_id,  # Use shape number for identification
                         "shape_type": shape.shape_type.name,
                         "shape_width": round(width_px),
                         "shape_height": round(height_px),

@@ -10,7 +10,7 @@ dir*
 # C extensions
 *.so
 output/
-
+debug_*.json    
 # Distribution / packaging
 .Python
 build/

@@ -1,4 +1,7 @@
 from asyncio import subprocess
+from urllib import response
+import requests
+import io
 from looker_powerpoint.find_alt_text import get_presentation_objects_with_descriptions
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
@@ -56,13 +59,49 @@ class Cli:
                 exit(1)
 
         # Initialize the argument parser
-        self._args_parser = self._init_argparser()
-        self.args = self._args_parser.parse_args()
+        _args_parser = self._init_argparser()
+        self.args = _args_parser.parse_args()
 
         self.client = LookerClient()
-
+        self.client.login()
+        self.relevant_shapes = []
         self.looker_shapes = []
         self.data = {}
+        self.file_path = self.args.file_path
+
+        if self.file_path:
+            try:
+                self.presentation = Presentation(self.file_path)
+            except Exception as e:
+                logging.error(f"Error opening {self.file_path}: {e}")
+        else:
+            # If no file path is provided look for a file in the current directory
+            files = [
+                f
+                for f in os.listdir(".")
+                if f.endswith(".pptx") and not f.startswith("~$")
+            ]
+            if files:
+                self.file_path = files[0]
+                logging.warning(
+                    f"""
+                    No file path provided, using first found file: {self.file_path}. 
+                    To specify a file, use the -f flag like 'lpt -f <file_path>'.
+                """
+                )
+
+                try:
+                    self.presentation = Presentation(self.file_path)
+                except Exception as e:
+                    logging.error(f"Error opening {self.file_path}: {e}")
+            else:
+                logging.error(
+                    """
+                    No PowerPoint file found in the current directory, closing. 
+                    Specify file using -f flag like 'lpt -f <file_path>'.
+                """
+                )
+                return
 
     def _init_argparser(self):
         """Create and configure the argument parser"""
@@ -240,23 +279,23 @@ class Cli:
             circle,
             {
                 "parent_shape_id": shape.shape_id,
+                "meta" : True
             },
         )
 
     def _replace_image_with_object(
-        self, prs, slide_index, shape_number, image_stream, integration
+        self, slide_index, shape_number, image_stream, integration
     ):
         """
         Replaces an existing image in a PowerPoint slide with a new image from a stream.
         Args:
-            prs: The Presentation object.
             slide_index: The index of the slide containing the image.
             shape_index: The index of the shape to replace.
             image_stream: A BytesIO stream containing the new image data.
             integration: A dictionary containing integration details.
         """
 
-        slide = prs.slides[slide_index]
+        slide = self.presentation.slides[slide_index]
         old_shape = None
         for shape in slide.shapes:
             if shape.shape_id == shape_number:
@@ -287,6 +326,58 @@ class Cli:
         )
         self._set_alt_text(picture, integration)
 
+    def _remove_shape(self, slide_index, shape_number):
+        """
+        Removes a shape from a PowerPoint slide.
+        Args:
+            prs: The Presentation object.
+            slide_index: The index of the slide containing the shape.
+            shape_index: The index of the shape to remove.
+        """
+
+        slide = self.presentation.slides[slide_index]
+        shape_to_remove = None
+        for shape in slide.shapes:
+            if shape.shape_id == shape_number:
+                shape_to_remove = shape
+
+        if shape_to_remove is None:
+            raise ValueError(f"Shape with number {shape_number} not found on slide {slide_index}.")
+
+        # Remove the shape
+        slide.shapes._spTree.remove(shape_to_remove._element)
+
+    def _make_df(self, result):
+        """
+        Create a pandas DataFrame from Looker data based on the integration settings.
+        Args:
+            result: The Looker data to convert.
+        """
+        data = json.loads(result)
+
+        fields = data.get("metadata", {}).get("fields", {})
+
+        # Combine all relevant field groups
+        all_fields = (
+            fields.get("dimensions", [])
+            + fields.get("measures", [])
+            + fields.get("table_calculations", [])
+        )
+
+        # Build the mapping
+        mappy = {
+            f"{item['name']}.value": item.get("field_group_variant", item['name']).strip()
+            for item in all_fields
+        }
+        logging.info(f"Header mapping: {mappy}")
+        # Create DataFrame
+        df = pd.json_normalize(data.get("rows", [])).fillna("")
+
+        # Apply rename
+        df.rename(columns=mappy, inplace=True)
+
+        return df
+
     async def _async_fetch_look(self, shape_id, filter_value=None, **kwargs):
         """
         Asynchronously fetch a Looker look by its ID.
@@ -310,145 +401,149 @@ class Cli:
         # Run all tasks concurrently and gather the results
         self.results = await asyncio.gather(*tasks)
 
-    def run(self, file_path: str = None):
+    def run(self):
         """
         Main method to run the CLI application.
-        Args:
-            file_path: Optional path to a PowerPoint file. If not provided, the first .pptx file in the current directory will be used.
         """
 
-        if file_path:
-            try:
-                presentation = Presentation(file_path)
-            except Exception as e:
-                logging.error(f"Error opening {file_path}: {e}")
-        else:
-            # If no file path is provided look for a file in the current directory
-            files = [
-                f
-                for f in os.listdir(".")
-                if f.endswith(".pptx") and not f.startswith("~$")
-            ]
-            if files:
-                file_path = files[0]
-                logging.warning(
-                    f"""
-                    No file path provided, using first found file: {file_path}. 
-                    To specify a file, use the -f flag like 'lpt -f <file_path>'.
-                """
-                )
-                presentation = Presentation(file_path)
-            else:
-                logging.error(
-                    """
-                    No PowerPoint file found in the current directory, closing. 
-                    Specify file using -f flag like 'lpt -f <file_path>'.
-                """
-                )
-                return
-
-        references = get_presentation_objects_with_descriptions(file_path)
+        references = get_presentation_objects_with_descriptions(self.file_path)
         if not references:
             logging.error(
-                "No shapes with look_id found in the presentation. Add a 'look_id' : '<look_id>' to the alternative text of a shape to load data into the shape."
+                "No shapes with id found in the presentation. Add a 'id' : '<look_id>' to the alternative text of a shape to load data into the shape."
             )
             return
 
         for ref in references:
             try:
-                self.looker_shapes.append(LookerShape.model_validate(ref))
+                self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
                 logging.error(f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}")
                 continue
+        self.looker_shapes = [
+            s for s in self.relevant_shapes if s.integration.id_type == "look"
+        ]
 
         asyncio.run(self.get_looks())
         for d in self.results:
-            self.data.update(d)
+            self.data.update(d) 
 
-        for looker_shape in self.looker_shapes:
-            result = self.data.get(looker_shape.shape_id)
-            # try:
-            if looker_shape.shape_type == "PICTURE":
-                image_stream = BytesIO(result)
-                self._replace_image_with_object(
-                    presentation,
-                    looker_shape.slide_number,
-                    looker_shape.shape_number,
-                    image_stream,
-                    looker_shape.integration,
-                )
+        for looker_shape in self.relevant_shapes:
 
-            df = pd.json_normalize(json.loads(result).get("rows", [])).fillna(
-                ""
-            )
-
-            if looker_shape.shape_type == "TABLE":
-                slide = presentation.slides[looker_shape.slide_number]
-
-                for shape in slide.shapes:
-                    if shape.shape_id == looker_shape.shape_number:
-                        chart_shape = shape
-
-                self._fill_table(chart_shape.table, df)
-
-            elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
-                slide = presentation.slides[looker_shape.slide_number]
-
-                for shape in slide.shapes:
-                    if shape.shape_id == looker_shape.shape_number:
-                        text_shape = shape
-                        text_shape.text = df[0][0]
-
-            elif looker_shape.shape_type == "CHART":
-                    chart_data = CategoryChartData()
-                    chart_data.categories = df.iloc[
-                        :, 0
-                    ].tolist()  # Assuming the first column contains categories
-
-                    for series_name in df.columns[1:]:
-                        match = (
-                            re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
-                            .group(1)
-                            .replace(".", " - ")
-                        )
-
-                        chart_data.add_series(match, df[series_name])
-                        # print(match)
-
-                    slide = presentation.slides[looker_shape.slide_number]
-                    for shape in slide.shapes:
-                        if shape.shape_id == looker_shape.shape_number:
-                            chart_shape = shape
-
-                    # Replace chart data (assumes the shape is a chart)
-                    chart = chart_shape.chart
-                    chart.replace_data(chart_data)
+            if looker_shape.integration.meta:
+                if not self.args.self:
+                    self._remove_shape(
+                        looker_shape.slide_number,
+                        looker_shape.shape_number,
+                    )
             
             else:
-                logging.error(
-                    f"Unsupported shape type {looker_shape.shape_type} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}."
-                )
-                continue
 
-            # except Exception as e:
-            #     logging.error(f"Error processing reference {looker_shape}: {e}")
-            #     if not self.args.hide_errors:
-            #         slide = presentation.slides[looker_shape.slide_number]
-            #         for shape in slide.shapes:
-            #             if shape.shape_id == looker_shape.shape_number:
-            #                 self._mark_failure(slide, shape)
+                result = self.data.get(looker_shape.shape_id)
+                if result is None:
+                    result = self.data.get(looker_shape.integration.id)
+                    # write the result to a local file for debugging
+                    with open(f"debug_{looker_shape.shape_id}.json", "w") as f:
+                        # with formatted json
+                        json.dump(json.loads(result), f, indent=4)
+                else:
+                    # write the result to a local file for debugging
+                    with open(f"debug_{looker_shape.shape_id}.json", "w") as f:
+                        # with formatted json
+                        json.dump(json.loads(result), f, indent=4)
+
+                try:
+                    if looker_shape.shape_type == "PICTURE":
+                        if (looker_shape.integration.result_format == "jpg" or looker_shape.integration.result_format == "png") and looker_shape.integration.id_type == "look":
+                            image_stream = BytesIO(result)
+                        else:
+                            df = self._make_df(result)
+                            url = df[looker_shape.integration.label][0]
+                            logging.info(f"Fetching image from URL: {url} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                            response = requests.get(url)
+                            response.raise_for_status()
+                            image_stream = io.BytesIO(response.content)
+
+                        self._replace_image_with_object(
+                            looker_shape.slide_number,
+                            looker_shape.shape_number,
+                            image_stream,
+                            looker_shape.integration,
+                        )
+                    elif looker_shape.shape_type == "TABLE":
+                        logging.info(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                        df = self._make_df(result)
+                        slide = self.presentation.slides[looker_shape.slide_number]
+
+                        for shape in slide.shapes:
+                            if shape.shape_id == looker_shape.shape_number:
+                                chart_shape = shape
+
+                        self._fill_table(chart_shape.table, df)
+
+                    elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
+                        logging.info(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+
+                        df = self._make_df(result)
+
+                        slide = self.presentation.slides[looker_shape.slide_number]
+
+                        for shape in slide.shapes:
+                            if shape.shape_id == looker_shape.shape_number:
+                                text_shape = shape
+                                try:
+                                    text_to_insert = df[looker_shape.integration.label][0]
+                                except Exception as e:
+                                    text_to_insert = df.to_string(index=False, header=False)
+                                    logging.error(f"Error getting text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
+                                text_shape.text = str(text_to_insert)
+
+                    elif looker_shape.shape_type == "CHART":
+                        df = self._make_df(result)
+                        chart_data = CategoryChartData()
+                        chart_data.categories = df.iloc[
+                            :, 0
+                        ].tolist()  # Assuming the first column contains categories
+
+                        for series_name in df.columns[1:]:
+                            chart_data.add_series(series_name, df[series_name])
+
+                        slide = self.presentation.slides[looker_shape.slide_number]
+                        for shape in slide.shapes:
+                            if shape.shape_id == looker_shape.shape_number:
+                                chart_shape = shape
+
+                        # Replace chart data (assumes the shape is a chart)
+                        chart = chart_shape.chart
+                        chart.replace_data(chart_data)
+
+                    else:
+                        logging.warning(
+                            f"unknown shape type {looker_shape.shape_type} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}."
+                        )
+                        continue
+
+                except Exception as e:
+                    logging.error(f"Error processing reference {looker_shape}: {e}")
+                    import traceback
+                    traceback.print_exc()  # Prints the full traceback
+
+                    if not self.args.hide_errors:
+                        slide = self.presentation.slides[looker_shape.slide_number]
+                        for shape in slide.shapes:
+                            if shape.shape_id == looker_shape.shape_number:
+                                self._mark_failure(slide, shape)
 
         if self.args.self:
-            self.destination = file_path
+            self.destination = self.file_path
         else:
             if not self.args.output_dir.endswith("/"):
                 self.args.output_dir += "/"
-            self.destination = self.args.output_dir + os.path.basename(file_path)
+            self.destination = self.args.output_dir + os.path.basename(self.file_path)
 
         if not os.path.exists(self.args.output_dir) and not self.args.self:
             os.makedirs(self.args.output_dir)
 
-        presentation.save(self.destination)
+        self.presentation.save(self.destination)
 
         if not self.args.quiet:
             try:

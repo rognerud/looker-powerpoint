@@ -1,15 +1,30 @@
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
+
 class LookerReference(BaseModel):
     """A Pydantic model for Looker reference integration.
     This model is used to define the parameters required to create a Looker model
     for a specific shape in a PowerPoint presentation.
     """
 
-    look_id: str
-    filter: str = Field(default=None, description="dimension to filter on")
-
+    id: str
+    id_type: str = Field(
+        default="look", description="The type of ID provided: 'look' or 'meta'."
+    )
+    meta: bool = Field(
+        default=False, description="Whether this Looker reference is a meta Look."
+    )
+    meta_name: str = Field(
+        default=None, description="The name of the meta Look, if applicable."
+    )
+    label: str = Field(
+        default=None, description="An optional label for the Looker reference."
+    )
+    filter: str = Field(default=None, description="dimension to expose for filtering on")
+    filter_overwrites: dict = Field(
+        default=None, description="A dictionary of filter overwrites to apply to the Look."
+    )
     result_format: str = Field(default="json_bi")  # Default result format
     apply_formatting: bool = Field(
         default=False, description="Apply model-specified formatting to each result."
@@ -21,7 +36,7 @@ class LookerReference(BaseModel):
     image_height: int = Field(default=None, description="Height of the image in pixels") 
     # optional parameters for the Look (Default to None)
 
-    @field_validator("look_id", mode="before")
+    @field_validator("id", mode="before")
     @classmethod
     def convert_int(cls, value):
         """Convert integer values to strings."""
@@ -35,7 +50,10 @@ class LookerShape(BaseModel):
     This model is used to define the properties of a shape, including its ID, type, dimensions,
     and associated Looker reference.
     """
-
+    is_meta: bool = Field(default=False, description="Whether this shape is a meta shape.")
+    meta_name: str = Field(
+        default=None, description="The name of the meta shape, if applicable."
+    )
     shape_id: str
     shape_type: str
     slide_number: int
@@ -59,7 +77,8 @@ class LookerShape(BaseModel):
 
         if data["shape_type"] == "PICTURE":
             data["original_integration"] = data["integration"]
-            data["integration"]["result_format"] = "jpg"
+            if data["integration"].get("result_format") is None:
+                data["integration"]["result_format"] = "jpg"
             data["integration"]["image_width"] = round(data["shape_width"])
             data["integration"]["image_height"] = round(data["shape_height"])
 
