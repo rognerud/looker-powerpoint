@@ -1,7 +1,6 @@
 from pptx import Presentation
 from lxml import etree
 import yaml
-import logging
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 

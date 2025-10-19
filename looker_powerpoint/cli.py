@@ -1,10 +1,11 @@
 from asyncio import subprocess
-from urllib import response
+from importlib import metadata
 import requests
 import io
-from looker_powerpoint.find_alt_text import get_presentation_objects_with_descriptions
+from looker_powerpoint.tools.find_alt_text import get_presentation_objects_with_descriptions
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
+from looker_powerpoint.tools.group_queries import group_queries_by_identity
 from pydantic import ValidationError
 import subprocess
 from pptx.util import Pt
@@ -24,9 +25,61 @@ import os
 import asyncio
 from io import BytesIO
 from pptx.dml.color import RGBColor
-from itertools import zip_longest
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
+
+import re
+from pptx.dml.color import RGBColor
+
+import re
+from pptx.dml.color import RGBColor
+
+def add_text_with_numbered_links(text_frame, text, start_index=1):
+    """
+    Replaces URLs in `text` with numbered references "(1)", "(23)", etc.
+    The placeholder is hyperlinked to the URL.
+    - Clears any prior content in the text_frame.
+    - Removes newlines if hyperlinks are present.
+    - If a URL ends with digits, uses that number instead of auto numbering.
+    Returns the next available numeric index.
+    """
+    text_frame.clear()
+
+    url_pattern = re.compile(r"https?://\S+")
+    paragraph = text_frame.add_paragraph()
+    index = start_index
+
+    matches = url_pattern.findall(text)
+    if matches:
+        # Flatten newlines if hyperlinks exist
+        text = text.replace("\n", " ")
+
+    # Split while keeping URLs in the list
+    parts = re.split(f"({url_pattern.pattern})", text)
+
+    for part in parts:
+        if not part:
+            continue
+
+        if url_pattern.fullmatch(part.strip()):
+            url = part.strip()
+
+            # Detect digits at the end of the URL path
+            match_digits = re.search(r"(\d+)(?:[/?#]?)*$", url)
+            number_text = match_digits.group(1) if match_digits else str(index)
+
+            run = paragraph.add_run()
+            run.text = f"({number_text})"
+            run.hyperlink.address = url
+            run.font.color.rgb = RGBColor(0, 0, 255)
+            run.font.underline = True
+
+            index += 1 if not match_digits else 0
+        else:
+            run = paragraph.add_run()
+            run.text = part
+
+    return index
 
 
 class Cli:
@@ -64,7 +117,6 @@ class Cli:
         self.args = _args_parser.parse_args()
 
         self.client = LookerClient()
-        self.client.login()
         self.relevant_shapes = []
         self.looker_shapes = []
         self.data = {}
@@ -103,6 +155,9 @@ class Cli:
                 """
                 )
                 return
+
+        # load tools
+        self.get_alt_text = get_presentation_objects_with_descriptions
 
     def _init_argparser(self):
         """Create and configure the argument parser"""
@@ -388,35 +443,44 @@ class Cli:
 
         return df
 
-    async def _async_fetch_look(self, shape_id, filter_value=None, **kwargs):
-        """
-        Asynchronously fetch a Looker look by its ID.
-        Args:
-            table: A dictionary containing the look_id and other parameters.
-        Returns:
-            The fetched look data.
-        """
-        return await self.client.get_look(shape_id, filter_value=filter_value, **dict(kwargs))
-
-    async def get_looks(self):
+    async def get_queries(self):
         """
         asyncronously fetch a list of look references
         """
-        logging.info(f"Fetching {len(self.looker_shapes)} looks from Looker...")
+        logging.info(f"Fetching Looker queries... {len(self.looker_shapes)} queries to fetch.")
         tasks = [
-            self._async_fetch_look(shape.shape_id, self.args.filter, **dict(shape.integration))
+            self.client._async_write_queries(shape.shape_id, self.args.filter, **dict(shape.integration))
             for shape in self.looker_shapes
         ]
 
         # Run all tasks concurrently and gather the results
-        self.results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
+        form_queries = {r["shape_id"]: r["query"] for r in results}
+        self.groups = group_queries_by_identity(form_queries)
+        self.queries = [g["query"] for g in self.groups]
+
+    async def run_queries(self):
+        """
+        asyncronously fetch a list of look references
+        """
+        logging.info(f"Running Looker queries... {len(self.queries)} queries to run.")
+        tasks = [
+            self.client._async_run_queries(
+                query
+            )
+            for query in self.queries
+        ]
+
+        # Run all tasks concurrently and gather the results
+        self.query_results = await asyncio.gather(*tasks)
+
 
     def run(self):
         """
         Main method to run the CLI application.
         """
 
-        references = get_presentation_objects_with_descriptions(self.file_path)
+        references = self.get_alt_text(self.file_path)
         if not references:
             logging.error(
                 "No shapes with id found in the presentation. Add a 'id' : '<look_id>' to the alternative text of a shape to load data into the shape."
@@ -429,13 +493,31 @@ class Cli:
             except ValidationError as e:
                 logging.error(f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}")
                 continue
+
+
         self.looker_shapes = [
             s for s in self.relevant_shapes if s.integration.id_type == "look"
         ]
+        metadata_rows = []
+        looks = set()
+        for looker_shape in self.looker_shapes:
+            if looker_shape.integration.id not in looks:
+                looks.add(looker_shape.integration.id)
+                metadata_rows.append({"looks": {"value": f"{os.environ.get('LOOKERSDK_BASE_URL')}looks/{looker_shape.integration.id}"}})
+        metadata_object = {"metadata": {"fields": {"dimensions": [{"name": "looks"}]}}, "rows": metadata_rows}
 
-        asyncio.run(self.get_looks())
-        for d in self.results:
-            self.data.update(d) 
+        self.data["metadata_shapes"] = json.dumps(metadata_object)
+
+        asyncio.run(self.get_queries())
+        asyncio.run(self.run_queries())
+
+        for group, result in zip(self.groups, self.query_results):
+            for sid in group["shapes"]:
+                self.data[sid] = result
+                # dump result for debugging
+                w = json.loads(result)
+                with open(f"debug_{sid}.json", "w", encoding="utf-8") as f:
+                    json.dump(w, f, indent=4, ensure_ascii=False)
 
         for looker_shape in self.relevant_shapes:
 
@@ -470,8 +552,9 @@ class Cli:
                             image_stream,
                             looker_shape.original_integration,
                         )
+
                     elif looker_shape.shape_type == "TABLE":
-                        logging.info(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                        logging.debug(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
                         df = self._make_df(result)
                         slide = self.presentation.slides[looker_shape.slide_number]
 
@@ -482,7 +565,7 @@ class Cli:
                         self._fill_table(chart_shape.table, df, looker_shape.integration.headers)
 
                     elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
-                        logging.info(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                        logging.debug(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
 
                         df = self._make_df(result)
 
@@ -495,8 +578,9 @@ class Cli:
                                     text_to_insert = df[looker_shape.integration.label][0]
                                 except Exception as e:
                                     text_to_insert = df.to_string(index=False, header=False)
-                                    logging.error(f"Error getting text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
-                                text_shape.text = str(text_to_insert)
+                                    logging.warning(f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
+                                # text_shape.text = str(text_to_insert)
+                                add_text_with_numbered_links(text_shape.text_frame, str(text_to_insert))
 
                     elif looker_shape.shape_type == "CHART":
 

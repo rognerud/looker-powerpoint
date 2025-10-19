@@ -10,7 +10,7 @@ class LookerReference(BaseModel):
 
     id: str
     id_type: str = Field(
-        default="look", description="The type of ID provided: 'look' or 'meta'."
+        default="look", description="The type of ID provided: 'look' or 'meta'. Defaults to 'look'."
     )
     meta: bool = Field(
         default=False, description="Whether this Looker reference is a meta Look."
