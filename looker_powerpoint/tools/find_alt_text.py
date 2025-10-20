@@ -26,13 +26,8 @@ def extract_alt_text(shape):
         if cNvPr_elements:
             descr = cNvPr_elements[0].get("descr")
             if descr:
-                data = yaml.safe_load(descr)  # Use safe_load for untrusted sources
-                # make all data lowercase
-                # try:
-                #     data = {k: v.lower() for k, v in data.items() if isinstance(v, str)}
-                # except Exception as e:
-                #     logging.error(f"Error processing description for shape {shape.shape_id}: {e}")
-                #     return None
+                data = yaml.safe_load(descr.lower())  # Use safe_load for untrusted sources
+
                 return data
     return None
 

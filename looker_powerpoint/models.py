@@ -21,6 +21,9 @@ class LookerReference(BaseModel):
     meta_name: str = Field(
         default=None, description="If you are defining a meta look, you should provide a reference name here. This can then be used by other shapes to reference this meta look."
     )
+    meta_iterate: bool = Field(
+        default=False, description="If set to true, this meta look will be iterated over by other shapes referencing it. This is useful for creating dynamic content based on the results of the meta look."
+    )
     label: str = Field(
         default=None, description="Setting a label here filters the results to the specified label. The label matches the column labels from the look."
     )
