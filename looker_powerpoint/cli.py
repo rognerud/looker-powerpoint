@@ -553,73 +553,60 @@ class Cli:
                             looker_shape.original_integration,
                         )
 
-                    elif looker_shape.shape_type == "TABLE":
-                        logging.debug(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
-                        df = self._make_df(result)
-                        slide = self.presentation.slides[looker_shape.slide_number]
-
-                        for shape in slide.shapes:
-                            if shape.shape_id == looker_shape.shape_number:
-                                chart_shape = shape
-
-                        self._fill_table(chart_shape.table, df, looker_shape.integration.headers)
-
-                    elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
-                        logging.debug(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
-
-                        df = self._make_df(result)
-
-                        slide = self.presentation.slides[looker_shape.slide_number]
-
-                        for shape in slide.shapes:
-                            if shape.shape_id == looker_shape.shape_number:
-                                text_shape = shape
-                                try:
-                                    text_to_insert = df[looker_shape.integration.label][0]
-                                except Exception as e:
-                                    text_to_insert = df.to_string(index=False, header=False)
-                                    logging.warning(f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
-                                # text_shape.text = str(text_to_insert)
-                                add_text_with_numbered_links(text_shape.text_frame, str(text_to_insert))
-
-                    elif looker_shape.shape_type == "CHART":
-
+                    elif looker_shape.shape_type in ["CHART", "TABLE", "TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
                         slide = self.presentation.slides[looker_shape.slide_number]
                         for shape in slide.shapes:
                             if shape.shape_id == looker_shape.shape_number:
-                                chart_shape = shape
-
+                                current_shape = shape
                         df = self._make_df(result)
-                        chart_data = CategoryChartData()
-                        chart_data.categories = df.iloc[
-                            :, 0
-                        ].tolist()  # Assuming the first column contains categories
-                        chart = chart_shape.chart
-                        existing_chart_data = chart.plots[0].series
-                        logging.debug(f"Existing chart series: {[s.name for s in existing_chart_data]}")
 
-                        if looker_shape.integration.headers:
-                            for series_name in df.columns[1:]:
-                                try:
-                                    match = (
-                                        re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
-                                        .group(1)
-                                        .replace(".", " - ")
-                                        .strip()
-                                        .replace("|FIELD|", " ")
+                        if looker_shape.shape_type == "TABLE":
+                            logging.debug(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                            self._fill_table(current_shape.table, df, looker_shape.integration.headers)
+
+                        elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
+                            logging.debug(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+
+                            try:
+                                text_to_insert = df[looker_shape.integration.label][0]
+                            except Exception as e:
+                                text_to_insert = df.to_string(index=False, header=False)
+                                logging.warning(f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
+                            # text_shape.text = str(text_to_insert)
+                            add_text_with_numbered_links(current_shape.text_frame, str(text_to_insert))
+
+                        elif looker_shape.shape_type == "CHART":
+
+                            chart_data = CategoryChartData()
+                            chart_data.categories = df.iloc[
+                                :, 0
+                            ].tolist()  # Assuming the first column contains categories
+                            chart = current_shape.chart
+                            existing_chart_data = chart.plots[0].series
+                            logging.debug(f"Existing chart series: {[s.name for s in existing_chart_data]}")
+
+                            if looker_shape.integration.headers:
+                                for series_name in df.columns[1:]:
+                                    try:
+                                        match = (
+                                            re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
+                                            .group(1)
+                                            .replace(".", " - ")
+                                            .strip()
+                                            .replace("|FIELD|", " ")
+                                        )
+                                    except Exception as e:
+                                        logging.error(f"Error parsing series name {series_name}: {e}")
+                                        match = series_name
+                                    chart_data.add_series(match, df[series_name])
+                            else:
+                                if len(df.columns[1:]) != len(existing_chart_data):
+                                    logging.warning(
+                                        f"{looker_shape.shape_id}. Missing headers! Number of series ({len(df.columns[1:])}) does not match number of existing chart series ({len(existing_chart_data)}). Perhaps you need to enable headers in the integration settings?"
                                     )
-                                except Exception as e:
-                                    logging.error(f"Error parsing series name {series_name}: {e}")
-                                    match = series_name
-                                chart_data.add_series(match, df[series_name])
-                        else:
-                            if len(df.columns[1:]) != len(existing_chart_data):
-                                logging.warning(
-                                    f"{looker_shape.shape_id}. Missing headers! Number of series ({len(df.columns[1:])}) does not match number of existing chart series ({len(existing_chart_data)}). Perhaps you need to enable headers in the integration settings?"
-                                )
-                            for series_name, series in zip(df.columns[1:], existing_chart_data):
-                                chart_data.add_series(series.name, df[series_name])
-                        chart.replace_data(chart_data)
+                                for series_name, series in zip(df.columns[1:], existing_chart_data):
+                                    chart_data.add_series(series.name, df[series_name])
+                            chart.replace_data(chart_data)
 
                     else:
                         logging.warning(
