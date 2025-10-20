@@ -1,46 +1,43 @@
 Looker-PowerPoint Documentation
 ======================================
 
-A command line interface for Looker PowerPoint integration.
+A command line interface for Looker PowerPoint integration that embeds YAML metadata in PowerPoint shape alternative text and replaces shapes with live Looker data.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-API Reference
-=============
+   cli
+   models
+   api
 
-Models
-------
+Quick Start
+===========
 
-.. automodule:: looker_powerpoint.models
-   :members:
-   :undoc-members:
-   :show-inheritance:
+1. Install dependencies:
 
-CLI
----
+   .. code-block:: bash
 
-.. automodule:: looker_powerpoint.cli
-   :members:
-   :undoc-members:
-   :show-inheritance:
+      uv sync
 
-Looker Client
--------------
+2. Set up environment variables:
 
-.. automodule:: looker_powerpoint.looker
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   .. code-block:: bash
 
-Tools
------
+      export LOOKERSDK_BASE_URL=https://your-looker.com
+      export LOOKERSDK_CLIENT_ID=your_client_id
+      export LOOKERSDK_CLIENT_SECRET=your_secret
 
-.. automodule:: looker_powerpoint.tools.find_alt_text
-   :members:
-   :undoc-members:
-   :show-inheritance:
+3. Process a PowerPoint file:
+
+   .. code-block:: bash
+
+      uv run lppt -f your_presentation.pptx
+
+Entry Point
+===========
+
+.. autofunction:: looker_powerpoint.cli.main
 
 Indices and tables
 ==================

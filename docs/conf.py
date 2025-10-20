@@ -11,9 +11,10 @@ import sys
 sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../looker_powerpoint'))
 
-project = 'looker_powerpoint'
-copyright = '2025, gisle'
-author = 'gisle'
+project = 'Looker PowerPoint CLI'
+copyright = '2025, Gisle Rognerud'
+author = 'Gisle Rognerud'
+release = '0.1.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -23,7 +24,15 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx.ext.autosummary',
+    'sphinx.ext.intersphinx',
+    'sphinxcontrib.autodoc_pydantic',
 ]
+
+# Intersphinx mapping for external documentation
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'pydantic': ('https://docs.pydantic.dev/latest/', None),
+}
 
 # Autodoc settings
 autodoc_default_options = {
@@ -31,8 +40,24 @@ autodoc_default_options = {
     'member-order': 'bysource',
     'special-members': '__init__',
     'undoc-members': True,
-    'exclude-members': '__weakref__'
+    'exclude-members': '__weakref__',
+    'show-inheritance': True,
 }
+
+# Include descriptions from Field() definitions
+autodoc_preserve_defaults = True
+autodoc_typehints = 'description'
+autodoc_typehints_description_target = 'documented'
+
+# autodoc_pydantic settings
+autodoc_pydantic_model_show_json = False
+autodoc_pydantic_model_show_config_summary = False
+autodoc_pydantic_model_show_validator_members = True
+autodoc_pydantic_model_show_field_summary = True
+autodoc_pydantic_field_list_validators = False
+autodoc_pydantic_model_signature_prefix = "class"
+autodoc_pydantic_field_doc_policy = "description"
+autodoc_pydantic_model_show_validator_summary = True
 
 # Napoleon settings for Google/NumPy style docstrings
 napoleon_google_docstring = True

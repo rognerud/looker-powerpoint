@@ -3,49 +3,52 @@ from pydantic import BaseModel, Field, model_validator, field_validator, Validat
 
 
 class LookerReference(BaseModel):
-    """A Pydantic model for Looker reference integration.
-    This model is used to define the parameters required to create a Looker model
-    for a specific shape in a PowerPoint presentation.
+    """
+    This model represents the input you can set in alternative text for a shape in PowerPoint.
+    You can specify the different parameters to control how Looker data is fetched and displayed.
     """
 
-    id: str
+    id: str = Field(
+        ..., description="The ID of the Look or meta-look (meta_name) you want to reference."
+    )
     id_type: str = Field(
-        default="look", description="The type of ID provided: 'look' or 'meta'. Defaults to 'look'."
+        default="look", description="The type of ID provided: 'look' or 'meta'. Defaults to 'look'." \
+            " Setting to 'meta' indicates that the ID refers to a meta Look."
     )
     meta: bool = Field(
-        default=False, description="Whether this Looker reference is a meta Look."
+        default=False, description="Set this to true if the Look is a meta Look. A meta look is a look that you want to retrieve and reuse, but not display directly."
     )
     meta_name: str = Field(
-        default=None, description="The name of the meta Look, if applicable."
+        default=None, description="If you are defining a meta look, you should provide a reference name here. This can then be used by other shapes to reference this meta look."
     )
     label: str = Field(
-        default=None, description="An optional label for the Looker reference."
+        default=None, description="Setting a label here filters the results to the specified label. The label matches the column labels from the look."
     )
-    filter: str = Field(default=None, description="dimension to expose for filtering on")
+    filter: str = Field(default=None, description="Define a label that you want to be able to filter on using the --filter cli argument. Inputting --filter <value> will filter the results to where <label>=<value>.")
     filter_overwrites: dict = Field(
         default=None, description="A dictionary of filter overwrites to apply to the Look."
     )
-    result_format: str = Field(default="json_bi")  # Default result format
+    result_format: str = Field(default="json_bi", description="The format to return the results in. Defaults to 'json_bi'.")
     apply_formatting: bool = Field(
-        default=False, description="Apply model-specified formatting to each result."
+        default=False, description="Apply Looker-specified formatting to each result."
     )
     apply_vis: bool = Field(
-        default=True, description="Apply visualization options to results."
+        default=True, description="Apply Looker visualization options to results."
     )
     server_table_calcs: bool = Field(
-        default=True, description="Whether to compute table calculations on the server."
+        default=True, description="Whether to compute table calculations on the Looker server before returning results."
     )
     headers: bool = Field(
-        default=True, description="Whether to include column headers in the results."
+        default=True, description="Whether to overwrite headers in the result set with Looker-defined column labels."
     )
-    image_width: int = Field(default=None, description="Width of the image in pixels")
-    image_height: int = Field(default=None, description="Height of the image in pixels") 
+    image_width: int = Field(default=None, description="Width of the image in pixels. Used for setting image size when asking looker to return a look rendered as an image.")
+    image_height: int = Field(default=None, description="Height of the image in pixels. Used for setting image size when asking looker to return a look rendered as an image.")
     # optional parameters for the Look (Default to None)
 
     @field_validator("id", mode="before")
     @classmethod
     def convert_int(cls, value):
-        """Convert integer values to strings."""
+        """Validation: Convert integer values to strings."""
         if isinstance(value, int):
             return str(value)
         return value
