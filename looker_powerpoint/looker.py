@@ -18,13 +18,12 @@ class LookerClient:
         """
 
         try:
-
             response = self.client.run_inline_query(
                 result_format=query_object["result_format"],
                 body=query_object["body"],
                 apply_vis=query_object["apply_vis"],
                 apply_formatting=query_object["apply_formatting"],
-                server_table_calcs=query_object["server_table_calcs"]
+                server_table_calcs=query_object["server_table_calcs"],
             )
 
         except looker_sdk.error.SDKError as e:
@@ -32,7 +31,6 @@ class LookerClient:
             return None
 
         return response
-
 
     async def make_query(
         self,
@@ -70,7 +68,7 @@ class LookerClient:
         if filter_overwrites is not None:
             for f, v in filter_overwrites.items():
                 logging.info(f"Overwriting filter {f} with value {v}")
-                if hasattr(q, 'filters'):
+                if hasattr(q, "filters"):
                     filterable = False
                     for _, existing_filter in enumerate(q.filters):
                         if existing_filter == f:
@@ -81,7 +79,7 @@ class LookerClient:
         if filter_value is not None and filter is not None:
             logging.info(f"Applying filter {filter} with value {filter_value}")
             # If filter_value is provided, set the filter
-            if hasattr(q, 'filters'):
+            if hasattr(q, "filters"):
                 filterable = False
                 for _, f in enumerate(q.filters):
                     # print(f, filter)
@@ -121,8 +119,8 @@ class LookerClient:
                 "body": body,
                 "apply_vis": apply_vis,
                 "apply_formatting": apply_formatting,
-            "server_table_calcs": server_table_calcs
-        }
+                "server_table_calcs": server_table_calcs,
+            },
         }
 
         return query_object
@@ -135,7 +133,9 @@ class LookerClient:
         Returns:
             The fetched look data.
         """
-        return await self.make_query(shape_id, filter_value=filter_value, **dict(kwargs))
+        return await self.make_query(
+            shape_id, filter_value=filter_value, **dict(kwargs)
+        )
 
     async def _async_run_queries(self, query):
         """

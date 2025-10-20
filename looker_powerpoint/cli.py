@@ -1,7 +1,9 @@
 from asyncio import subprocess
 import requests
 import io
-from looker_powerpoint.tools.find_alt_text import get_presentation_objects_with_descriptions
+from looker_powerpoint.tools.find_alt_text import (
+    get_presentation_objects_with_descriptions,
+)
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
 from looker_powerpoint.tools.group_queries import group_queries_by_identity
@@ -33,11 +35,11 @@ from pptx.dml.color import RGBColor
 import re
 from pptx.dml.color import RGBColor
 
-class Cli:
 
+class Cli:
     # color with rich
     HEADER = """
-        Looker PowerPoint CLI : 
+        Looker PowerPoint CLI :
         A command line interface for Looker PowerPoint integration.
     """
 
@@ -89,7 +91,7 @@ class Cli:
                 self.file_path = files[0]
                 logging.warning(
                     f"""
-                    No file path provided, using first found file: {self.file_path}. 
+                    No file path provided, using first found file: {self.file_path}.
                     To specify a file, use the -f flag like 'lpt -f <file_path>'.
                 """
                 )
@@ -101,7 +103,7 @@ class Cli:
             else:
                 logging.error(
                     """
-                    No PowerPoint file found in the current directory, closing. 
+                    No PowerPoint file found in the current directory, closing.
                     Specify file using -f flag like 'lpt -f <file_path>'.
                 """
                 )
@@ -249,6 +251,7 @@ class Cli:
         xml_str = shape.element.xml
         xml_elem = etree.fromstring(xml_str)
         import yaml
+
         # convert pydantic model to dict
         if isinstance(data, dict) is False:
             data = data.model_dump()
@@ -301,10 +304,7 @@ class Cli:
 
         self._set_alt_text(
             circle,
-            {
-                "parent_shape_id": shape.shape_id,
-                "meta" : True
-            },
+            {"parent_shape_id": shape.shape_id, "meta": True},
         )
 
     def _replace_image_with_object(
@@ -330,7 +330,9 @@ class Cli:
                 logging.warning(
                     f"Shape numbers on slide {slide_index}: {shape.shape_number} (type: {shape.shape_type})"
                 )
-            raise ValueError(f"Shape with number {shape_number} not found on slide {slide_index}.")
+            raise ValueError(
+                f"Shape with number {shape_number} not found on slide {slide_index}."
+            )
 
         if not old_shape.shape_type == 13:  # 13 = PICTURE
             raise ValueError("Selected shape is not an image.")
@@ -366,7 +368,9 @@ class Cli:
                 shape_to_remove = shape
 
         if shape_to_remove is None:
-            raise ValueError(f"Shape with number {shape_number} not found on slide {slide_index}.")
+            raise ValueError(
+                f"Shape with number {shape_number} not found on slide {slide_index}."
+            )
 
         # Remove the shape
         slide.shapes._spTree.remove(shape_to_remove._element)
@@ -390,7 +394,9 @@ class Cli:
 
         # Build the mapping
         mappy = {
-            f"{item['name']}.value": item.get("field_group_variant", item['name']).strip().lower()
+            f"{item['name']}.value": item.get("field_group_variant", item["name"])
+            .strip()
+            .lower()
             for item in all_fields
         }
         logging.debug(f"Header mapping: {mappy}")
@@ -406,9 +412,13 @@ class Cli:
         """
         asyncronously fetch a list of look references
         """
-        logging.info(f"Fetching Looker queries... {len(self.looker_shapes)} queries to fetch.")
+        logging.info(
+            f"Fetching Looker queries... {len(self.looker_shapes)} queries to fetch."
+        )
         tasks = [
-            self.client._async_write_queries(shape.shape_id, self.args.filter, **dict(shape.integration))
+            self.client._async_write_queries(
+                shape.shape_id, self.args.filter, **dict(shape.integration)
+            )
             for shape in self.looker_shapes
         ]
 
@@ -423,16 +433,10 @@ class Cli:
         asyncronously fetch a list of look references
         """
         logging.info(f"Running Looker queries... {len(self.queries)} queries to run.")
-        tasks = [
-            self.client._async_run_queries(
-                query
-            )
-            for query in self.queries
-        ]
+        tasks = [self.client._async_run_queries(query) for query in self.queries]
 
         # Run all tasks concurrently and gather the results
         self.query_results = await asyncio.gather(*tasks)
-
 
     def run(self):
         """
@@ -450,7 +454,9 @@ class Cli:
             try:
                 self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
-                logging.error(f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}")
+                logging.error(
+                    f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}"
+                )
                 continue
 
         self.looker_shapes = [
@@ -461,8 +467,17 @@ class Cli:
         for looker_shape in self.looker_shapes:
             if looker_shape.integration.id not in looks:
                 looks.add(looker_shape.integration.id)
-                metadata_rows.append({"looks": {"value": f"{os.environ.get('LOOKERSDK_BASE_URL')}looks/{looker_shape.integration.id}"}})
-        metadata_object = {"metadata": {"fields": {"dimensions": [{"name": "looks"}]}}, "rows": metadata_rows}
+                metadata_rows.append(
+                    {
+                        "looks": {
+                            "value": f"{os.environ.get('LOOKERSDK_BASE_URL')}looks/{looker_shape.integration.id}"
+                        }
+                    }
+                )
+        metadata_object = {
+            "metadata": {"fields": {"dimensions": [{"name": "looks"}]}},
+            "rows": metadata_rows,
+        }
 
         self.data["metadata_shapes"] = json.dumps(metadata_object)
 
@@ -478,28 +493,31 @@ class Cli:
                     with open(f"debug_{sid}.json", "w", encoding="utf-8") as f:
                         json.dump(w, f, indent=4, ensure_ascii=False)
         for looker_shape in self.relevant_shapes:
-
             if looker_shape.integration.meta:
                 if not self.args.self:
                     self._remove_shape(
                         looker_shape.slide_number,
                         looker_shape.shape_number,
                     )
-            
-            else:
 
+            else:
                 result = self.data.get(looker_shape.shape_id)
                 if result is None:
                     result = self.data.get(looker_shape.integration.id)
 
                 try:
                     if looker_shape.shape_type == "PICTURE":
-                        if (looker_shape.integration.result_format == "jpg" or looker_shape.integration.result_format == "png") and looker_shape.integration.id_type == "look":
+                        if (
+                            looker_shape.integration.result_format == "jpg"
+                            or looker_shape.integration.result_format == "png"
+                        ) and looker_shape.integration.id_type == "look":
                             image_stream = BytesIO(result)
                         else:
                             df = self._make_df(result)
                             url = df[looker_shape.integration.label][0]
-                            logging.info(f"Fetching image from URL: {url} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                            logging.info(
+                                f"Fetching image from URL: {url} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
+                            )
                             response = requests.get(url)
                             response.raise_for_status()
                             image_stream = io.BytesIO(response.content)
@@ -511,7 +529,13 @@ class Cli:
                             looker_shape.original_integration,
                         )
 
-                    elif looker_shape.shape_type in ["CHART", "TABLE", "TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
+                    elif looker_shape.shape_type in [
+                        "CHART",
+                        "TABLE",
+                        "TEXT_BOX",
+                        "TITLE",
+                        "AUTO_SHAPE",
+                    ]:
                         slide = self.presentation.slides[looker_shape.slide_number]
                         for shape in slide.shapes:
                             if shape.shape_id == looker_shape.shape_number:
@@ -519,42 +543,62 @@ class Cli:
                         df = self._make_df(result)
 
                         if looker_shape.shape_type == "TABLE":
-                            logging.debug(f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
-                            self._fill_table(current_shape.table, df, looker_shape.integration.headers)
+                            logging.debug(
+                                f"Updating table for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
+                            )
+                            self._fill_table(
+                                current_shape.table,
+                                df,
+                                looker_shape.integration.headers,
+                            )
 
-                        elif looker_shape.shape_type in ["TEXT_BOX", "TITLE", "AUTO_SHAPE"]:
-                            logging.debug(f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}...")
+                        elif looker_shape.shape_type in [
+                            "TEXT_BOX",
+                            "TITLE",
+                            "AUTO_SHAPE",
+                        ]:
+                            logging.debug(
+                                f"Updating text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
+                            )
 
                             try:
                                 text_to_insert = df[looker_shape.integration.label][0]
                             except Exception as e:
                                 text_to_insert = df.to_string(index=False, header=False)
-                                logging.warning(f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}")
+                                logging.warning(
+                                    f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}"
+                                )
                             current_shape.text = str(text_to_insert)
-                            #add_text_with_numbered_links(current_shape.text_frame, str(text_to_insert))
+                            # add_text_with_numbered_links(current_shape.text_frame, str(text_to_insert))
 
                         elif looker_shape.shape_type == "CHART":
-
                             chart_data = CategoryChartData()
                             chart_data.categories = df.iloc[
                                 :, 0
                             ].tolist()  # Assuming the first column contains categories
                             chart = current_shape.chart
                             existing_chart_data = chart.plots[0].series
-                            logging.debug(f"Existing chart series: {[s.name for s in existing_chart_data]}")
+                            logging.debug(
+                                f"Existing chart series: {[s.name for s in existing_chart_data]}"
+                            )
 
                             if looker_shape.integration.headers:
                                 for series_name in df.columns[1:]:
                                     try:
                                         match = (
-                                            re.search(r"^[^\.]*\.[^\.]*\.(.*)\.value$", series_name)
+                                            re.search(
+                                                r"^[^\.]*\.[^\.]*\.(.*)\.value$",
+                                                series_name,
+                                            )
                                             .group(1)
                                             .replace(".", " - ")
                                             .strip()
                                             .replace("|FIELD|", " ")
                                         )
                                     except Exception as e:
-                                        logging.error(f"Error parsing series name {series_name}: {e}")
+                                        logging.error(
+                                            f"Error parsing series name {series_name}: {e}"
+                                        )
                                         match = series_name
                                     chart_data.add_series(match, df[series_name])
                             else:
@@ -562,7 +606,9 @@ class Cli:
                                     logging.warning(
                                         f"{looker_shape.shape_id}. Missing headers! Number of series ({len(df.columns[1:])}) does not match number of existing chart series ({len(existing_chart_data)}). Perhaps you need to enable headers in the integration settings?"
                                     )
-                                for series_name, series in zip(df.columns[1:], existing_chart_data):
+                                for series_name, series in zip(
+                                    df.columns[1:], existing_chart_data
+                                ):
                                     chart_data.add_series(series.name, df[series_name])
                             chart.replace_data(chart_data)
 
@@ -575,6 +621,7 @@ class Cli:
                 except Exception as e:
                     logging.error(f"Error processing reference {looker_shape}: {e}")
                     import traceback
+
                     traceback.print_exc()  # Prints the full traceback
 
                     if not self.args.hide_errors:

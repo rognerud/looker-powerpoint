@@ -7,47 +7,48 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
 import sys
-# Add both the parent directory and the looker_powerpoint directory to the path
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../looker_powerpoint'))
 
-project = 'Looker PowerPoint CLI'
-copyright = '2025, Gisle Rognerud'
-author = 'Gisle Rognerud'
-release = '0.1.0'
+# Add both the parent directory and the looker_powerpoint directory to the path
+sys.path.insert(0, os.path.abspath(".."))
+sys.path.insert(0, os.path.abspath("../looker_powerpoint"))
+
+project = "Looker PowerPoint CLI"
+copyright = "2025, Gisle Rognerud"
+author = "Gisle Rognerud"
+release = "0.1.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.napoleon',
-    'sphinx.ext.autosummary',
-    'sphinx.ext.intersphinx',
-    'sphinxcontrib.autodoc_pydantic',
+    "sphinx.ext.autodoc",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.intersphinx",
+    "sphinxcontrib.autodoc_pydantic",
 ]
 
 # Intersphinx mapping for external documentation
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/3', None),
-    'pydantic': ('https://docs.pydantic.dev/latest/', None),
+    "python": ("https://docs.python.org/3", None),
+    "pydantic": ("https://docs.pydantic.dev/latest/", None),
 }
 
 # Autodoc settings
 autodoc_default_options = {
-    'members': True,
-    'member-order': 'bysource',
-    'special-members': '__init__',
-    'undoc-members': True,
-    'exclude-members': '__weakref__',
-    'show-inheritance': True,
+    "members": True,
+    "member-order": "bysource",
+    "special-members": "__init__",
+    "undoc-members": True,
+    "exclude-members": "__weakref__",
+    "show-inheritance": True,
 }
 
 # Include descriptions from Field() definitions
 autodoc_preserve_defaults = True
-autodoc_typehints = 'description'
-autodoc_typehints_description_target = 'documented'
+autodoc_typehints = "description"
+autodoc_typehints_description_target = "documented"
 
 # autodoc_pydantic settings
 autodoc_pydantic_model_show_json = False
@@ -75,13 +76,12 @@ napoleon_use_rtype = True
 # Autosummary settings
 autosummary_generate = True
 
-templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
-
+templates_path = ["_templates"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
-html_static_path = ['_static']
+html_theme = "alabaster"
+html_static_path = ["_static"]

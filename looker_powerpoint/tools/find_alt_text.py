@@ -26,7 +26,9 @@ def extract_alt_text(shape):
         if cNvPr_elements:
             descr = cNvPr_elements[0].get("descr")
             if descr:
-                data = yaml.safe_load(descr.lower())  # Use safe_load for untrusted sources
+                data = yaml.safe_load(
+                    descr.lower()
+                )  # Use safe_load for untrusted sources
 
                 return data
     return None
@@ -65,7 +67,9 @@ def get_presentation_objects_with_descriptions(pptx_path):
                 if description.get("meta_name"):
                     shape_id = description["meta_name"]
                 else:
-                    shape_id = f"{i},{shape.shape_id}"  # Use shape number for identification
+                    shape_id = (
+                        f"{i},{shape.shape_id}"  # Use shape number for identification
+                    )
 
                 objects_with_descriptions.append(
                     {

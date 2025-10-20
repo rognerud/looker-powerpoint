@@ -1,7 +1,8 @@
-
 import re
 
 from pptx.dml.color import RGBColor
+
+
 def add_text_with_numbered_links(text_frame, text, start_index=1):
     """
     Replaces URLs in `text` with numbered references "(1)", "(23)", etc.
@@ -48,4 +49,3 @@ def add_text_with_numbered_links(text_frame, text, start_index=1):
             run.text = part
 
     return index
-

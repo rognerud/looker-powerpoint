@@ -1,5 +1,6 @@
 from deepdiff import DeepHash
 
+
 def group_queries_by_identity(queries):
     """
     Groups identical queries so they can be executed once.
