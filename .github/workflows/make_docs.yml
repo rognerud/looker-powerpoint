@@ -1,4 +1,4 @@
-name: Deploy Release
+name: Make docs
 
 on:
   release:
@@ -27,13 +27,3 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ${{ steps.deployment.outputs.artifact }}
-
-    - name: Build
-      run: |
-        uv build
-
-    - name: Publish
-      env:
-        token: ${{ secrets.PYPI_TOKEN }}
-      run: |
-        uv publish --token $token
