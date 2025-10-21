@@ -18,7 +18,11 @@ Quick Start
 
    .. code-block:: bash
 
-      uv sync
+      uv add looker_powerpoint
+
+      or
+
+      pip install looker_powerpoint
 
 2. Set up environment variables:
 
@@ -27,6 +31,8 @@ Quick Start
       export LOOKERSDK_BASE_URL=https://your-looker.com
       export LOOKERSDK_CLIENT_ID=your_client_id
       export LOOKERSDK_CLIENT_SECRET=your_secret
+
+      or put the environment variables in a .env file.
 
 3. Process a PowerPoint file:
 
