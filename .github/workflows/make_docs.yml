@@ -23,10 +23,10 @@ jobs:
     - id: make
       run: cd docs && make html && cd ..
 
-    - uses: peaceiris/actions-gh-pages@v3
+    - name: "Upload pages to artifact"
+      uses: actions/upload-pages-artifact@v3
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: docs/_build/html
+        path: ${{ github.workspace }}/docs/_build/html
 
   deploy-to-github-pages:
     # Add a dependency to the build job
