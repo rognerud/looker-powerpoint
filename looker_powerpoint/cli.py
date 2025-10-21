@@ -51,6 +51,19 @@ class Cli:
             handlers=[RichHandler()],
         )
 
+        self.client = None
+        self.relevant_shapes = []
+        self.looker_shapes = []
+        self.data = {}
+
+        # Initialize the argument parser
+        self.parser = self._init_argparser()
+
+        # load tools
+        self.get_alt_text = get_presentation_objects_with_descriptions
+
+    def _init_looker(self):
+        """ """
         load_dotenv()
         # check if the required environment variables are set
         required_env_vars = [
@@ -64,53 +77,7 @@ class Cli:
                     f"Environment variable {var} is not set. Please set it before running the CLI. (e.g. export {var}=<value> or create a .env file and set it there: {var}=<value>)"
                 )
                 exit(1)
-
-        # Initialize the argument parser
-        _args_parser = self._init_argparser()
-        self.args = _args_parser.parse_args()
-
         self.client = LookerClient()
-        self.relevant_shapes = []
-        self.looker_shapes = []
-        self.data = {}
-        self.file_path = self.args.file_path
-
-        if self.file_path:
-            try:
-                self.presentation = Presentation(self.file_path)
-            except Exception as e:
-                logging.error(f"Error opening {self.file_path}: {e}")
-        else:
-            # If no file path is provided look for a file in the current directory
-            files = [
-                f
-                for f in os.listdir(".")
-                if f.endswith(".pptx") and not f.startswith("~$")
-            ]
-            if files:
-                self.file_path = files[0]
-                logging.warning(
-                    f"""
-                    No file path provided, using first found file: {self.file_path}.
-                    To specify a file, use the -f flag like 'lpt -f <file_path>'.
-                """
-                )
-
-                try:
-                    self.presentation = Presentation(self.file_path)
-                except Exception as e:
-                    logging.error(f"Error opening {self.file_path}: {e}")
-            else:
-                logging.error(
-                    """
-                    No PowerPoint file found in the current directory, closing.
-                    Specify file using -f flag like 'lpt -f <file_path>'.
-                """
-                )
-                return
-
-        # load tools
-        self.get_alt_text = get_presentation_objects_with_descriptions
 
     def _init_argparser(self):
         """Create and configure the argument parser"""
@@ -198,6 +165,49 @@ class Cli:
         )
 
         return parser
+
+    def _pick_file(self):
+        """
+        Picks the PowerPoint file to process.
+        If no file path is provided, it looks for the first .pptx file in the current directory.
+
+        Returns:
+            str: The path to the PowerPoint file.
+        """
+        self.file_path = self.args.file_path
+
+        if self.file_path:
+            try:
+                self.presentation = Presentation(self.file_path)
+            except Exception as e:
+                logging.error(f"Error opening {self.file_path}: {e}")
+        else:
+            # If no file path is provided look for a file in the current directory
+            files = [
+                f
+                for f in os.listdir(".")
+                if f.endswith(".pptx") and not f.startswith("~$")
+            ]
+            if files:
+                self.file_path = files[0]
+                logging.warning(
+                    f"""
+                    No file path provided, using first found file: {self.file_path}.
+                    To specify a file, use the -f flag like 'lpt -f <file_path>'.
+                """
+                )
+
+                try:
+                    self.presentation = Presentation(self.file_path)
+                except Exception as e:
+                    logging.error(f"Error opening {self.file_path}: {e}")
+            else:
+                logging.error(
+                    """
+                    No PowerPoint file found in the current directory, closing.
+                    Specify file using -f flag like 'lpt -f <file_path>'.
+                """
+                )
 
     def _fill_table(self, table, df, headers=True):
         """
@@ -438,10 +448,13 @@ class Cli:
         # Run all tasks concurrently and gather the results
         self.query_results = await asyncio.gather(*tasks)
 
-    def run(self):
+    def run(self, **kwargs):
         """
         Main method to run the CLI application.
         """
+        self.args = self.parser.parse_args()
+        self._pick_file()
+        self._init_looker()
 
         references = self.get_alt_text(self.file_path)
         if not references:
