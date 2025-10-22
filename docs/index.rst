@@ -43,7 +43,7 @@ Quick Start
       export LOOKERSDK_CLIENT_SECRET=your_secret
 
    or put the environment variables in a .env file in the project root:
-   .. code-block:: env
+   .. code-block:: bash
 
       LOOKERSDK_BASE_URL=https://your-looker.com
       LOOKERSDK_CLIENT_ID=your_client_id

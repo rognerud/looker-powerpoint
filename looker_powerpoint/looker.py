@@ -1,14 +1,12 @@
 import logging
 from typing import Optional
 import looker_sdk
-import os
 from dotenv import load_dotenv
 from looker_sdk import models40 as models
 
 
 class LookerClient:
     def __init__(self):
-        # check if the required environment variables are set
         load_dotenv()
 
         try:

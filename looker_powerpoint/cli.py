@@ -10,7 +10,6 @@ from looker_powerpoint.tools.group_queries import group_queries_by_identity
 from pydantic import ValidationError
 import subprocess
 from pptx.util import Pt
-from dotenv import load_dotenv, find_dotenv
 from pptx.chart.data import CategoryChartData
 import json
 import pandas as pd
@@ -63,7 +62,7 @@ class Cli:
         self.get_alt_text = get_presentation_objects_with_descriptions
 
     def _init_looker(self):
-        """ """
+        """Initialize the Looker client"""
         self.client = LookerClient()
 
     def _init_argparser(self):
@@ -178,7 +177,7 @@ class Cli:
             if files:
                 self.file_path = files[0]
                 logging.warning(
-                    f"""No file path provided, using first found file: {self.file_path}. To specify a file, use the -f flag like 'lpt -f <file_path>'."""
+                    f"No file path provided, using first found file: {self.file_path}. To specify a file, use the -f flag like 'lpt -f <file_path>'."
                 )
 
                 try:
