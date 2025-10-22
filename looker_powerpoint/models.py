@@ -109,16 +109,17 @@ class LookerShape(BaseModel):
         """Push down relevant data from the integration to the shape model."""
         # push down
         # if picture is shape type, then we need to push down the image width and height
-        data["original_integration"] = data["integration"]
+        if type(data.get("integration")) in (dict, LookerReference):
+            data["original_integration"] = data["integration"]
 
-        if data["shape_type"] == "PICTURE":
-            if data["integration"].get("result_format") is None:
-                data["integration"]["result_format"] = "jpg"
-            data["integration"]["image_width"] = round(data["shape_width"])
-            data["integration"]["image_height"] = round(data["shape_height"])
+            if data["shape_type"] == "PICTURE":
+                if data["integration"].get("result_format") is None:
+                    data["integration"]["result_format"] = "jpg"
+                data["integration"]["image_width"] = round(data["shape_width"])
+                data["integration"]["image_height"] = round(data["shape_height"])
 
-        elif data["shape_type"] == "TABLE":
-            if data["integration"].get("apply_formatting") is None:
-                data["integration"]["apply_formatting"] = True
+            elif data["shape_type"] == "TABLE":
+                if data["integration"].get("apply_formatting") is None:
+                    data["integration"]["apply_formatting"] = True
 
         return data

@@ -64,8 +64,8 @@ def get_presentation_objects_with_descriptions(pptx_path):
             height_px = emu_to_pixels(shape.height)
 
             if description:
-                if description.get("meta_name"):
-                    shape_id = description["meta_name"]
+                if type(description) is dict and "meta_name" in description:
+                    shape_id = description.get("meta_name")
                 else:
                     shape_id = (
                         f"{i},{shape.shape_id}"  # Use shape number for identification
