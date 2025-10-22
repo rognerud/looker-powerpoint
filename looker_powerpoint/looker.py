@@ -1,13 +1,23 @@
 import logging
 from typing import Optional
 import looker_sdk
-
+import os
+from dotenv import load_dotenv
 from looker_sdk import models40 as models
 
 
 class LookerClient:
     def __init__(self):
-        self.client = looker_sdk.init40()  # or init40() for the v4.0 API
+        # check if the required environment variables are set
+        load_dotenv()
+
+        try:
+            self.client = looker_sdk.init40()  # or init40() for the v4.0 API
+        except looker_sdk.error.SDKError as e:
+            logging.error(
+                f"Error initializing Looker SDK: {e} Consider adding a looker.ini file, or setting the LOOKERSDK_BASE_URL, LOOKERSDK_CLIENT_ID, and LOOKERSDK_CLIENT_SECRET environment variables."
+            )
+            exit(1)
 
     async def run_query(self, query_object):
         """

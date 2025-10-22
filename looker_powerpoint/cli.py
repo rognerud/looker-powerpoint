@@ -10,7 +10,7 @@ from looker_powerpoint.tools.group_queries import group_queries_by_identity
 from pydantic import ValidationError
 import subprocess
 from pptx.util import Pt
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from pptx.chart.data import CategoryChartData
 import json
 import pandas as pd
@@ -64,19 +64,6 @@ class Cli:
 
     def _init_looker(self):
         """ """
-        load_dotenv()
-        # check if the required environment variables are set
-        required_env_vars = [
-            "LOOKERSDK_BASE_URL",
-            "LOOKERSDK_CLIENT_ID",
-            "LOOKERSDK_CLIENT_SECRET",
-        ]
-        for var in required_env_vars:
-            if not os.getenv(var):
-                logging.error(
-                    f"Environment variable {var} is not set. Please set it before running the CLI. (e.g. export {var}=<value> or create a .env file and set it there: {var}=<value>)"
-                )
-                exit(1)
         self.client = LookerClient()
 
     def _init_argparser(self):
@@ -191,10 +178,7 @@ class Cli:
             if files:
                 self.file_path = files[0]
                 logging.warning(
-                    f"""
-                    No file path provided, using first found file: {self.file_path}.
-                    To specify a file, use the -f flag like 'lpt -f <file_path>'.
-                """
+                    f"""No file path provided, using first found file: {self.file_path}. To specify a file, use the -f flag like 'lpt -f <file_path>'."""
                 )
 
                 try:
@@ -205,9 +189,11 @@ class Cli:
                 logging.error(
                     """
                     No PowerPoint file found in the current directory, closing.
-                    Specify file using -f flag like 'lpt -f <file_path>'.
+                    Run from a directory with a .pptx file, or
+                    specify file using -f flag like 'lpt -f <file_path>'.
                 """
                 )
+                exit(1)
 
     def _fill_table(self, table, df, headers=True):
         """
