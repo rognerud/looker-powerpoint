@@ -32,10 +32,12 @@ source = "uv-dynamic-versioning"
 
 [dependency-groups]
 dev = [
-    "autodoc-pydantic>=2.2.0",
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
     "ruff>=0.14.1",
+]
+
+docs = [
     "sphinx>=8.2.3",
     "sphinx-autodoc-typehints>=3.5.2",
 ]
