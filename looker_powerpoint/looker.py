@@ -3,8 +3,6 @@ from typing import Optional
 import looker_sdk
 from dotenv import load_dotenv, find_dotenv
 from looker_sdk import models40 as models
-from pathlib import Path
-import os
 
 
 class LookerClient:
