@@ -1,14 +1,13 @@
 import logging
 from typing import Optional
 import looker_sdk
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from looker_sdk import models40 as models
 
 
 class LookerClient:
     def __init__(self):
-        load_dotenv()
-
+        load_dotenv(find_dotenv(usecwd=True))
         try:
             self.client = looker_sdk.init40()  # or init40() for the v4.0 API
         except looker_sdk.error.SDKError as e:
