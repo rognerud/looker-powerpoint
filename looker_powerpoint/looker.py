@@ -9,7 +9,7 @@ import os
 
 class LookerClient:
     def __init__(self):
-        load_dotenv(find_dotenv(use_cwd=True))
+        load_dotenv(find_dotenv(usecwd=True))
         try:
             self.client = looker_sdk.init40()  # or init40() for the v4.0 API
         except looker_sdk.error.SDKError as e:
