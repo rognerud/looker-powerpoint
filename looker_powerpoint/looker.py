@@ -4,12 +4,12 @@ import looker_sdk
 from dotenv import load_dotenv, find_dotenv
 from looker_sdk import models40 as models
 from pathlib import Path
+import os
 
 
 class LookerClient:
     def __init__(self):
-        load_dotenv(find_dotenv())
-
+        load_dotenv(find_dotenv(use_cwd=True))
         try:
             self.client = looker_sdk.init40()  # or init40() for the v4.0 API
         except looker_sdk.error.SDKError as e:
