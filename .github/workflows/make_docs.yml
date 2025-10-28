@@ -22,7 +22,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        run: uv sync --group dev --group docs
+        uv sync --group dev --group docs
 
     - id: make
       run: cd docs && make html && cd ..
