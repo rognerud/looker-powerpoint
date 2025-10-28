@@ -428,7 +428,7 @@ class Cli:
 
     async def get_queries(self):
         """
-        asyncronously fetch a list of look references
+        asynchronously fetch a list of look references
         """
         logging.info(
             f"Running Looker queries... {len(self.looker_shapes)} queries to fetch."
