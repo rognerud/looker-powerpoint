@@ -38,4 +38,5 @@ dev = [
     "ruff>=0.14.1",
     "sphinx>=8.2.3",
     "sphinx-autodoc-typehints>=3.5.2",
+    "autodoc-pydantic>=2.2.0"
 ]
