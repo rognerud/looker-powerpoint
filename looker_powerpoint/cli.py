@@ -431,7 +431,7 @@ class Cli:
         asynchronously fetch a list of look references
         """
         logging.info(
-            f"Running Looker queries... {len(self.looker_shapes)} queries to fetch."
+            f"Running Looker queries... {len(self.looker_shapes)} queries to run."
         )
         tasks = [
             self.client._async_write_queries(
