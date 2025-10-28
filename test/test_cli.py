@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch
 from looker_powerpoint.cli import Cli
 

@@ -137,8 +137,9 @@ class LookerClient:
                 "server_table_calcs": server_table_calcs,
             },
         }
+        result = await self.run_query(query_object["query"])
 
-        return query_object
+        return {shape_id: result}
 
     async def _async_write_queries(self, shape_id, filter_value=None, **kwargs):
         """
@@ -151,9 +152,3 @@ class LookerClient:
         return await self.make_query(
             shape_id, filter_value=filter_value, **dict(kwargs)
         )
-
-    async def _async_run_queries(self, query):
-        """
-        asyncronously run a list of look references
-        """
-        return await self.run_query(query)

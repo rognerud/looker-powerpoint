@@ -6,7 +6,7 @@ from looker_powerpoint.tools.find_alt_text import (
 )
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
-from looker_powerpoint.tools.group_queries import group_queries_by_identity
+
 from looker_powerpoint.tools.pptx_text_handler import process_text_field
 from pydantic import ValidationError
 import subprocess
@@ -404,12 +404,34 @@ class Cli:
 
         return df
 
+    def _build_metadata_object(self):
+        """
+        Build metadata object for the presentation.
+        """
+        metadata_rows = []
+        looks = set()
+        for looker_shape in self.looker_shapes:
+            if looker_shape.integration.id not in looks:
+                looks.add(looker_shape.integration.id)
+                metadata_rows.append(
+                    {
+                        "looks": {
+                            "value": f"{os.environ.get('LOOKERSDK_BASE_URL')}looks/{looker_shape.integration.id}"
+                        }
+                    }
+                )
+        metadata_object = {
+            "metadata": {"fields": {"dimensions": [{"name": "looks"}]}},
+            "rows": metadata_rows,
+        }
+        self.data["metadata_shapes"] = json.dumps(metadata_object)
+
     async def get_queries(self):
         """
-        asyncronously fetch a list of look references
+        asynchronously fetch a list of look references
         """
         logging.info(
-            f"Fetching Looker queries... {len(self.looker_shapes)} queries to fetch."
+            f"Running Looker queries... {len(self.looker_shapes)} queries to run."
         )
         tasks = [
             self.client._async_write_queries(
@@ -420,19 +442,8 @@ class Cli:
 
         # Run all tasks concurrently and gather the results
         results = await asyncio.gather(*tasks)
-        form_queries = {r["shape_id"]: r["query"] for r in results}
-        self.groups = group_queries_by_identity(form_queries)
-        self.queries = [g["query"] for g in self.groups]
-
-    async def run_queries(self):
-        """
-        asyncronously fetch a list of look references
-        """
-        logging.info(f"Running Looker queries... {len(self.queries)} queries to run.")
-        tasks = [self.client._async_run_queries(query) for query in self.queries]
-
-        # Run all tasks concurrently and gather the results
-        self.query_results = await asyncio.gather(*tasks)
+        for r in results:
+            self.data.update(r)
 
     def run(self, **kwargs):
         """
@@ -453,44 +464,19 @@ class Cli:
             try:
                 self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
-                logging.error(
-                    f"Validation error when loading alternative text for shape {ref['shape_id']}: {e}"
+                logging.warning(
+                    f"Could not parse the alternate text in slide {ref['shape_id'].split(',')[0]}, shape {ref['shape_id'].split(',')[1]}: {e}"
                 )
                 continue
 
         self.looker_shapes = [
             s for s in self.relevant_shapes if s.integration.id_type == "look"
         ]
-        metadata_rows = []
-        looks = set()
-        for looker_shape in self.looker_shapes:
-            if looker_shape.integration.id not in looks:
-                looks.add(looker_shape.integration.id)
-                metadata_rows.append(
-                    {
-                        "looks": {
-                            "value": f"{os.environ.get('LOOKERSDK_BASE_URL')}looks/{looker_shape.integration.id}"
-                        }
-                    }
-                )
-        metadata_object = {
-            "metadata": {"fields": {"dimensions": [{"name": "looks"}]}},
-            "rows": metadata_rows,
-        }
 
-        self.data["metadata_shapes"] = json.dumps(metadata_object)
+        self._build_metadata_object()
 
         asyncio.run(self.get_queries())
-        asyncio.run(self.run_queries())
 
-        for group, result in zip(self.groups, self.query_results):
-            for sid in group["shapes"]:
-                self.data[sid] = result
-                if self.args.debug_queries:
-                    # dump result for debugging
-                    w = json.loads(result)
-                    with open(f"debug_{sid}.json", "w", encoding="utf-8") as f:
-                        json.dump(w, f, indent=4, ensure_ascii=False)
         for looker_shape in self.relevant_shapes:
             if looker_shape.integration.meta:
                 if not self.args.self:
@@ -598,9 +584,9 @@ class Cli:
                                             .strip()
                                             .replace("|FIELD|", " ")
                                         )
-                                    except Exception as e:
-                                        logging.error(
-                                            f"Error parsing series name {series_name}: {e}"
+                                    except AttributeError as e:
+                                        logging.debug(
+                                            f"Could not parse series name {series_name}, setting name to {series_name}"
                                         )
                                         match = series_name
                                     chart_data.add_series(match, df[series_name])
