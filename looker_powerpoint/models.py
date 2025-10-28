@@ -44,6 +44,10 @@ class LookerReference(BaseModel):
         default="json_bi",
         description="The format to return the results in. Defaults to 'json_bi'.",
     )
+    show_latest_chart_label: bool = Field(
+        default=False,
+        description="If set to true, modify chart series with labels to only show the latest label.",
+    )
     apply_formatting: bool = Field(
         default=False, description="Apply Looker-specified formatting to each result."
     )
