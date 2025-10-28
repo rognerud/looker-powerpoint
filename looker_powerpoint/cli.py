@@ -6,7 +6,6 @@ from looker_powerpoint.tools.find_alt_text import (
 )
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
-from looker_powerpoint.tools.group_queries import group_queries_by_identity
 from pydantic import ValidationError
 import subprocess
 from pptx.util import Pt
