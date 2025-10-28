@@ -6,6 +6,8 @@ from looker_powerpoint.tools.find_alt_text import (
 )
 from looker_powerpoint.looker import LookerClient
 from looker_powerpoint.models import LookerShape
+
+from looker_powerpoint.tools.pptx_text_handler import process_text_field
 from pydantic import ValidationError
 import subprocess
 from pptx.util import Pt
@@ -548,10 +550,14 @@ class Cli:
                                 text_to_insert = df[looker_shape.integration.label][0]
                             except Exception as e:
                                 text_to_insert = df.to_string(index=False, header=False)
-                                logging.warning(
+                                logging.debug(
                                     f"inserting whole text for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}: {e}"
                                 )
-                            current_shape.text = str(text_to_insert)
+                            current_shape = process_text_field(
+                                current_shape,
+                                text_to_insert,
+                                df,
+                            )
                             # add_text_with_numbered_links(current_shape.text_frame, str(text_to_insert))
 
                         elif looker_shape.shape_type == "CHART":
