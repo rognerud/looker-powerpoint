@@ -586,7 +586,7 @@ class Cli:
                                         )
                                     except AttributeError as e:
                                         logging.debug(
-                                            f"could not parse series name {series_name}, setting name to {series_name}"
+                                            f"Could not parse series name {series_name}, setting name to {series_name}"
                                         )
                                         match = series_name
                                     chart_data.add_series(match, df[series_name])
