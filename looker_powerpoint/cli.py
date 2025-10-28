@@ -25,14 +25,11 @@ from rich.logging import RichHandler
 import os
 import asyncio
 from io import BytesIO
-from pptx.dml.color import RGBColor
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
 import re
-from pptx.dml.color import RGBColor
-
-import re
+from pptx.util import Pt
 from pptx.dml.color import RGBColor
 
 
@@ -599,7 +596,49 @@ class Cli:
                                     df.columns[1:], existing_chart_data
                                 ):
                                     chart_data.add_series(series.name, df[series_name])
+
                             chart.replace_data(chart_data)
+                            if looker_shape.integration.show_latest_chart_label:
+                                for plot in chart.plots:
+                                    s = 0
+                                    for series in plot.series:
+                                        series_has_label = False
+                                        index = 0
+                                        for i, v in zip(
+                                            series.points, df.iloc[:, s + 1]
+                                        ):
+                                            if i.data_label._dLbl is not None:
+                                                series_has_label = True
+                                                logging.info(
+                                                    f"Series {series.name} has data labels."
+                                                )
+                                            if v is not None and v != "":
+                                                logging.info(
+                                                    f"Value for point {index} in series {series.name}: {v}"
+                                                )
+                                                index += 1
+                                        if series_has_label is True:
+                                            new_index = 0
+                                            for point in series.points:
+                                                new_index += 1
+                                                if new_index == index:
+                                                    logging.info(
+                                                        f"Showing data label for point {new_index} in series {series.name}."
+                                                    )
+                                                    point.data_label.text_frame.text = (
+                                                        ""
+                                                    )
+                                                    point.data_label.has_text_frame = (
+                                                        False
+                                                    )
+                                                else:
+                                                    point.data_label.text_frame.text = (
+                                                        ""
+                                                    )
+                                                    point.data_label.has_text_frame = (
+                                                        True
+                                                    )
+                                        s += 1
 
                     else:
                         logging.warning(
