@@ -82,6 +82,10 @@ class LookerClient:
                             filterable = True
                     if filterable:
                         q.filters[f] = v
+                    else:
+                        logging.warning(
+                            f"Overwrite filter {f} not found in query filters. Available filters: {q.filters}"
+                        )
 
         if filter_value is not None and filter is not None:
             logging.info(f"Applying filter {filter} with value {filter_value}")
@@ -94,6 +98,10 @@ class LookerClient:
                         filterable = True
             if filterable:
                 q.filters[filter] = filter_value
+            else:
+                logging.warning(
+                    f"Filter {filter} not found in query filters. Available filters: {q.filters}"
+                )
 
         body = models.WriteQuery(
             model=q.model,

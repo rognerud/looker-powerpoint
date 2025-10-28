@@ -34,11 +34,11 @@ class LookerReference(BaseModel):
     )
     filter: str = Field(
         default=None,
-        description="Define a label that you want to be able to filter on using the --filter cli argument. Inputting --filter <value> will filter the results to where <label>=<value>.",
+        description="Define a lookml.field_name used in the Look that you want to be able to filter on using the --filter cli argument. Inputting --filter <value> will filter the results to where <label>=<value>.",
     )
     filter_overwrites: dict = Field(
         default=None,
-        description="A dictionary of filter overwrites to apply to the Look.",
+        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. (unvalidated)",
     )
     result_format: str = Field(
         default="json_bi",
