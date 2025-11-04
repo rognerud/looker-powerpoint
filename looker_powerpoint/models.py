@@ -22,7 +22,7 @@ class LookerReference(BaseModel):
     )
     meta_name: str = Field(
         default=None,
-        description="If you are defining a meta look, you should provide a reference name here. This can then be used by other shapes to reference this meta look.",
+        description="NOT actually working yet. If you are defining a meta look, you should provide a reference name here. This can then be used by other shapes to reference this meta look.",
     )
     meta_iterate: bool = Field(
         default=False,
@@ -30,7 +30,7 @@ class LookerReference(BaseModel):
     )
     label: str = Field(
         default=None,
-        description="Setting a label here filters the results to the specified label. The label matches the column labels from the look.",
+        description="Setting a label here filters the results to the specified label. The label needs to match the specific column label from the look including any special characters.",
     )
     filter: str = Field(
         default=None,
@@ -38,7 +38,7 @@ class LookerReference(BaseModel):
     )
     filter_overwrites: dict = Field(
         default=None,
-        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. (unvalidated)",
+        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. The filter values should not be enclosed in quotation marks. (unvalidated)",
     )
     result_format: str = Field(
         default="json_bi",

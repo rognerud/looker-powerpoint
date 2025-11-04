@@ -1,4 +1,5 @@
 from asyncio import subprocess
+import datetime
 import requests
 import io
 from looker_powerpoint.tools.find_alt_text import (
@@ -461,7 +462,7 @@ class Cli:
             try:
                 self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
-                logging.warning(
+                logging.debug(
                     f"Could not parse the alternate text in slide {ref['shape_id'].split(',')[0]}, shape {ref['shape_id'].split(',')[1]}: {e}"
                 )
                 continue
@@ -609,11 +610,11 @@ class Cli:
                                         ):
                                             if i.data_label._dLbl is not None:
                                                 series_has_label = True
-                                                logging.info(
+                                                logging.debug(
                                                     f"Series {series.name} has data labels."
                                                 )
                                             if v is not None and v != "":
-                                                logging.info(
+                                                logging.debug(
                                                     f"Value for point {index} in series {series.name}: {v}"
                                                 )
                                                 index += 1
@@ -622,7 +623,7 @@ class Cli:
                                             for point in series.points:
                                                 new_index += 1
                                                 if new_index == index:
-                                                    logging.info(
+                                                    logging.debug(
                                                         f"Showing data label for point {new_index} in series {series.name}."
                                                     )
                                                     point.data_label.text_frame.text = (
@@ -648,9 +649,8 @@ class Cli:
 
                 except Exception as e:
                     logging.error(f"Error processing reference {looker_shape}: {e}")
-                    import traceback
-
-                    traceback.print_exc()  # Prints the full traceback
+                    # import traceback
+                    # traceback.print_exc()  # Prints the full traceback
 
                     if not self.args.hide_errors:
                         slide = self.presentation.slides[looker_shape.slide_number]
@@ -663,8 +663,11 @@ class Cli:
         else:
             if not self.args.output_dir.endswith("/"):
                 self.args.output_dir += "/"
-            self.destination = self.args.output_dir + os.path.basename(self.file_path)
-
+            self.destination = (
+                self.args.output_dir
+                + os.path.basename(self.file_path).removesuffix(".pptx")
+                + datetime.datetime.now().strftime("_%Y%m%d_%H%M%S.pptx")
+            )
         if not os.path.exists(self.args.output_dir) and not self.args.self:
             os.makedirs(self.args.output_dir)
 
