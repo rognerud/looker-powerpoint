@@ -27,7 +27,7 @@ def extract_alt_text(shape):
             descr = cNvPr_elements[0].get("descr")
             if descr:
                 data = yaml.safe_load(
-                    descr.lower()
+                    descr  # .lower()
                 )  # Use safe_load for untrusted sources
 
                 return data

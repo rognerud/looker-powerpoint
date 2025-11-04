@@ -36,6 +36,9 @@ class LookerClient:
         except looker_sdk.error.SDKError as e:
             logging.error(f"Error retrieving Look with ID {id} : {e}")
             return None
+        except Exception as e:
+            logging.error(f"Unexpected error retrieving Look with ID {id} : {e}")
+            return None
 
         return response
 
@@ -59,8 +62,12 @@ class LookerClient:
         Returns:
             A WriteQuery object representing the modified query.
         """
+        try:
+            look = self.client.look(id)
+        except Exception as e:
+            logging.error(f"Error fetching Look with ID {id}, is this a valid Look ID?")
+            return {shape_id: None}
 
-        look = self.client.look(id)
         q = look.query
         for parameter, value in kwargs.items():
             if value is not None:
