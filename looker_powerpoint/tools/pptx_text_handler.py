@@ -4,6 +4,7 @@ from pptx import Presentation
 from pptx.dml.color import RGBColor
 from jinja2 import Environment, BaseLoader
 import pandas as pd
+from pptx.dml.color import MSO_COLOR_TYPE
 
 # ---------- Emoji removal helper ----------
 # Regex to match emoji and a broad set of pictographs/symbols.
@@ -27,23 +28,6 @@ def remove_emojis_from_string(s):
     if not isinstance(s, str):
         return s
     return _EMOJI_REGEX.sub("", s)
-
-
-def sanitize_value(v):
-    # Keep numbers, None, etc. For strings, remove emojis.
-    if v is None:
-        return v
-    # pandas NA / numpy.nan: return as-is (Jinja will render as 'nan' if cast)
-    try:
-        import numpy as _np
-
-        if v is _np.nan:
-            return v
-    except Exception:
-        pass
-    if isinstance(v, str):
-        return remove_emojis_from_string(v)
-    return v
 
 
 _WS_RE = re.compile(r"\s+")
@@ -241,81 +225,9 @@ def extract_text_and_run_meta(text_frame):
     return full_text, run_meta
 
 
-# ---------- Reinsert rendered text, applying color markers ----------
-def reinsert_rendered_text(text_frame, rendered_text, original_run_meta):
-    segments = decode_marked_segments(rendered_text)
-    text_frame.text = ""
-    orig_runs = [rm["run_obj"] for rm in original_run_meta]
-    if not orig_runs:
-        p = (
-            text_frame.paragraphs[0]
-            if text_frame.paragraphs
-            else text_frame.add_paragraph()
-        )
-        for seg_text, seg_color in segments:
-            lines = seg_text.split("\n")
-            for i_line, line_part in enumerate(lines):
-                if i_line > 0:
-                    p = text_frame.add_paragraph()
-                if line_part == "":
-                    continue
-                r = p.add_run()
-                r.text = line_part
-                if seg_color:
-                    try:
-                        rgb = seg_color.lstrip("#")
-                        r.font.color.rgb = RGBColor(
-                            int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
-                        )
-                    except Exception:
-                        pass
-        return
-
-    cur_para = (
-        text_frame.paragraphs[0]
-        if text_frame.paragraphs
-        else text_frame.add_paragraph()
-    )
-    for p in text_frame.paragraphs:
-        p.clear()
-
-    template_idx = 0
-    for seg_text, seg_color in segments:
-        lines = seg_text.split("\n")
-        for i_l, lp in enumerate(lines):
-            if i_l > 0:
-                cur_para = text_frame.add_paragraph()
-                try:
-                    cur_para.alignment = text_frame.paragraphs[0].alignment
-                except Exception:
-                    pass
-            if lp == "":
-                continue
-            r = cur_para.add_run()
-            r.text = lp
-            attempts = 0
-            while attempts < len(orig_runs) and orig_runs[template_idx] is None:
-                template_idx = (template_idx + 1) % len(orig_runs)
-                attempts += 1
-            src_run = orig_runs[template_idx]
-            template_idx = (template_idx + 1) % len(orig_runs)
-            if src_run is not None:
-                try:
-                    copy_run_format(src_run, r)
-                except Exception:
-                    pass
-            if seg_color:
-                try:
-                    rgb = seg_color.lstrip("#")
-                    r.font.color.rgb = RGBColor(
-                        int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
-                    )
-                except Exception:
-                    pass
-
-
 # ---------- High-level processor ----------
 def process_text_field(shape, text_to_insert, df, env=None):
+    text_to_insert = str(text_to_insert)
     jinja_tag_re = re.compile(r"({{.*?}}|{%.+?%})", re.DOTALL)
     text_frame = shape.text_frame
     full_text, run_meta = extract_text_and_run_meta(text_frame)
@@ -323,21 +235,119 @@ def process_text_field(shape, text_to_insert, df, env=None):
     if not jinja_tag_re.search(full_text):
         logging.debug("No Jinja tags found in shape; applying fallback if different.")
         if full_text != (text_to_insert or ""):
-            shape.text = text_to_insert or ""
+            update_text_frame_preserving_formatting(text_frame, text_to_insert or "")
         return
 
     df_sanitized = sanitize_dataframe_headers(df)
-
-    # 2) convert to list-of-dicts and also sanitize row string values if needed
     rows = df_sanitized.to_dict(orient="records")
-
-    # Sanitize string values in each row
-    # Build sanitized rows and pass to Jinja as 'rows'
     context = {"rows": rows}
 
-    # try:
     rendered = render_text_with_jinja(full_text, context, env=env)
-    # except Exception as e:
-    # raise RuntimeError(f"Jinja rendering failed: {e}")
 
-    reinsert_rendered_text(text_frame, rendered, run_meta)
+    # --- Compare old vs new to decide whether to modify ---
+    if rendered.strip() == full_text.strip():
+        logging.debug("Rendered Jinja output identical to original; skipping update.")
+        return
+
+    # --- Update text safely ---
+    reinsert_rendered_text_preserving_formatting(text_frame, rendered, run_meta)
+
+
+def update_text_frame_preserving_formatting(text_frame, new_text):
+    """
+    Replace text content but preserve shape formatting and paragraph style.
+    """
+    # Grab formatting from the first run
+    if not text_frame.paragraphs:
+        text_frame.text = new_text
+        return
+
+    p = text_frame.paragraphs[0]
+    runs = p.runs
+    font = runs[0].font if runs else None
+    if font and getattr(font, "color", None):
+        col = font.color
+        try:
+            if getattr(col, "type", None) == MSO_COLOR_TYPE.RGB and getattr(
+                col, "rgb", None
+            ):
+                color = col.rgb
+            elif getattr(col, "type", None) == MSO_COLOR_TYPE.SCHEME and getattr(
+                col, "theme_color", None
+            ):
+                color = col.theme_color
+        except Exception:
+            pass
+    size = font.size if font and font.size else Pt(12)
+
+    # Clear all text but keep paragraphs
+    for paragraph in text_frame.paragraphs:
+        for run in paragraph.runs:
+            run.text = ""
+
+    # Replace only first run text (preserves style)
+    if not text_frame.paragraphs:
+        p = text_frame.add_paragraph()
+
+    if not p.runs:
+        run = p.add_run()
+    else:
+        run = p.runs[0]
+
+    run.text = new_text
+
+    # Reapply original font attributes (if any)
+    if color:
+        try:
+            if isinstance(color, RGBColor):
+                run.font.color.rgb = color
+            else:
+                run.font.color.theme_color = color
+        except Exception:
+            pass
+    if size:
+        run.font.size = size
+
+
+def reinsert_rendered_text_preserving_formatting(
+    text_frame, rendered_text, run_meta=None
+):
+    first_paragraph = text_frame.paragraphs[0] if text_frame.paragraphs else None
+    first_run = (
+        first_paragraph.runs[0] if first_paragraph and first_paragraph.runs else None
+    )
+    font = getattr(first_run, "font", None)
+    alignment = getattr(first_paragraph, "alignment", None)
+
+    for p in list(text_frame.paragraphs):
+        text_frame._element.remove(p._p)
+
+    new_paragraph = text_frame.add_paragraph()
+    new_run = new_paragraph.add_run()
+    new_run.text = rendered_text
+
+    # Safely copy all style attributes
+    copy_font_format(font, new_run.font)
+
+    if alignment is not None:
+        new_paragraph.alignment = alignment
+
+
+def copy_font_format(src_font, dest_font):
+    """Copy color, size, bold, italic safely between fonts."""
+    if not src_font or not dest_font:
+        return
+
+    color = src_font.color
+    if color and color.type is not None:
+        if color.type == MSO_COLOR_TYPE.RGB and color.rgb:
+            dest_font.color.rgb = color.rgb
+        elif color.type == MSO_COLOR_TYPE.SCHEME and color.theme_color is not None:
+            dest_font.color.theme_color = color.theme_color
+
+    if src_font.size:
+        dest_font.size = src_font.size
+    if src_font.bold is not None:
+        dest_font.bold = src_font.bold
+    if src_font.italic is not None:
+        dest_font.italic = src_font.italic

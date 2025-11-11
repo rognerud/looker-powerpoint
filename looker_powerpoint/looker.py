@@ -63,9 +63,12 @@ class LookerClient:
             A WriteQuery object representing the modified query.
         """
         try:
+            # check if string can be converted to int
             look = self.client.look(id)
         except Exception as e:
-            logging.error(f"Error fetching Look with ID {id}, is this a valid Look ID?")
+            logging.error(
+                f"Error fetching Look with ID {id}, is this a valid Look ID? If it is a meta reference, remember to set id_type: 'meta'"
+            )
             return {shape_id: None}
 
         q = look.query

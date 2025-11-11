@@ -21,6 +21,7 @@ import re
 import argparse
 from rich_argparse import RichHelpFormatter
 import logging
+from PIL import Image
 
 from rich.logging import RichHandler
 import os
@@ -304,45 +305,42 @@ class Cli:
     def _replace_image_with_object(
         self, slide_index, shape_number, image_stream, integration
     ):
-        """
-        Replaces an existing image in a PowerPoint slide with a new image from a stream.
-        Args:
-            slide_index: The index of the slide containing the image.
-            shape_index: The index of the shape to replace.
-            image_stream: A BytesIO stream containing the new image data.
-            integration: A dictionary containing integration details.
-        """
-
         slide = self.presentation.slides[slide_index]
-        old_shape = None
-        for shape in slide.shapes:
-            if shape.shape_id == shape_number:
-                old_shape = shape
-
+        old_shape = next((s for s in slide.shapes if s.shape_id == shape_number), None)
         if old_shape is None:
-            for shape in slide.shapes:
-                logging.warning(
-                    f"Shape numbers on slide {slide_index}: {shape.shape_number} (type: {shape.shape_type})"
-                )
-            raise ValueError(
-                f"Shape with number {shape_number} not found on slide {slide_index}."
-            )
-
-        if not old_shape.shape_type == 13:  # 13 = PICTURE
+            raise ValueError(f"Shape {shape_number} not found on slide {slide_index}.")
+        if old_shape.shape_type != 13:  # picture
             raise ValueError("Selected shape is not an image.")
 
-        # Save original position and size
-        left = old_shape.left
-        top = old_shape.top
-        width = old_shape.width
-        height = old_shape.height
-
-        # Remove the old image
+        left, top, width, height = (
+            old_shape.left,
+            old_shape.top,
+            old_shape.width,
+            old_shape.height,
+        )
         slide.shapes._spTree.remove(old_shape._element)
 
-        # Insert new image from memory (image_stream must be a BytesIO object)
+        # --- calculate scaled size preserving aspect ratio ---
+        img_bytes = image_stream.getvalue()
+        image_stream.seek(0)
+        with Image.open(BytesIO(img_bytes)) as im:
+            img_w, img_h = im.size
+        img_ratio = img_w / img_h
+        shape_ratio = width / height
+
+        if img_ratio > shape_ratio:
+            new_width = width
+            new_height = int(width / img_ratio)
+        else:
+            new_height = height
+            new_width = int(height * img_ratio)
+
+        # center within original box
+        new_left = left + (width - new_width) / 2
+        new_top = top + (height - new_height) / 2
+
         picture = slide.shapes.add_picture(
-            image_stream, left, top, width=width, height=height
+            BytesIO(img_bytes), new_left, new_top, width=new_width, height=new_height
         )
         self._set_alt_text(picture, integration)
 
@@ -391,6 +389,7 @@ class Cli:
             f"{item['name']}.value": item.get("field_group_variant", item["name"])
             .strip()
             .lower()
+            .replace(" ", "_")
             for item in all_fields
         }
         logging.debug(f"Header mapping: {mappy}")
@@ -443,6 +442,13 @@ class Cli:
         for r in results:
             self.data.update(r)
 
+    def _test_str_to_int(self, s):
+        try:
+            int(s)
+            return True
+        except ValueError:
+            return False
+
     def run(self, **kwargs):
         """
         Main method to run the CLI application.
@@ -468,7 +474,10 @@ class Cli:
                 continue
 
         self.looker_shapes = [
-            s for s in self.relevant_shapes if s.integration.id_type == "look"
+            s
+            for s in self.relevant_shapes
+            if s.integration.id_type == "look"
+            and self._test_str_to_int(s.integration.id)
         ]
 
         self._build_metadata_object()
@@ -490,20 +499,31 @@ class Cli:
 
                 try:
                     if looker_shape.shape_type == "PICTURE":
-                        if (
-                            looker_shape.integration.result_format == "jpg"
-                            or looker_shape.integration.result_format == "png"
-                        ) and looker_shape.integration.id_type == "look":
+                        logging.warning(
+                            f"Processing image for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
+                        )
+                        if looker_shape.integration.result_format in ("jpg", "png"):
+                            logging.info(
+                                f"Fetching image binary data...{looker_shape.shape_number} : {looker_shape.integration.result_format}"
+                            )
+                            logging.info(looker_shape.integration)
                             image_stream = BytesIO(result)
                         else:
                             df = self._make_df(result)
-                            url = df[looker_shape.integration.label][0]
-                            logging.info(
-                                f"Fetching image from URL: {url} for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
-                            )
+                            if looker_shape.integration.row is not None:
+                                url = df[looker_shape.integration.label][
+                                    looker_shape.integration.row
+                                ]
+                            else:
+                                url = df[looker_shape.integration.label][0]
+
                             response = requests.get(url)
                             response.raise_for_status()
                             image_stream = io.BytesIO(response.content)
+
+                        logging.info(
+                            f"Replacing image for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
+                        )
 
                         self._replace_image_with_object(
                             looker_shape.slide_number,
@@ -545,7 +565,14 @@ class Cli:
                             )
 
                             try:
-                                text_to_insert = df[looker_shape.integration.label][0]
+                                if looker_shape.integration.row is not None:
+                                    text_to_insert = df[looker_shape.integration.label][
+                                        looker_shape.integration.row
+                                    ]
+                                else:
+                                    text_to_insert = df[looker_shape.integration.label][
+                                        0
+                                    ]
                             except Exception as e:
                                 text_to_insert = df.to_string(index=False, header=False)
                                 logging.debug(
