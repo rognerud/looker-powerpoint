@@ -1,3 +1,4 @@
+import logging
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
@@ -31,6 +32,10 @@ class LookerReference(BaseModel):
     label: str = Field(
         default=None,
         description="Setting a label here filters the results to the specified label. The label needs to match the specific column label from the look including any special characters.",
+    )
+    row: int = Field(
+        default=None,
+        description="If you want to retrieve a specific row from the Look results, set the row number here (0-indexed).",
     )
     filter: str = Field(
         default=None,
@@ -117,8 +122,9 @@ class LookerShape(BaseModel):
             data["original_integration"] = data["integration"]
 
             if data["shape_type"] == "PICTURE":
-                if data["integration"].get("result_format") is None:
-                    data["integration"]["result_format"] = "jpg"
+                data["integration"]["result_format"] = data["integration"].get(
+                    "result_format", "json_bi"
+                )
                 data["integration"]["image_width"] = round(data["shape_width"])
                 data["integration"]["image_height"] = round(data["shape_height"])
 
