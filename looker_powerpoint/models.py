@@ -33,6 +33,10 @@ class LookerReference(BaseModel):
         default=None,
         description="Setting a label here filters the results to the specified label. The label needs to match the specific column label from the look including any special characters.",
     )
+    column: int = Field(
+        default=None,
+        description="The specific column to retrieve from the Look results. 0-indexed.",
+    )
     row: int = Field(
         default=None,
         description="If you want to retrieve a specific row from the Look results, set the row number here (0-indexed).",
