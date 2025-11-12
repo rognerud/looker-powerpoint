@@ -302,6 +302,30 @@ class Cli:
             {"parent_shape_id": shape.shape_id, "meta": True},
         )
 
+    def _select_slice_from_df(self, df, integration):
+        """
+        Selects a specific slice from the DataFrame based on the integration settings.
+
+        Args:
+            df: A pandas DataFrame containing the data.
+            integration: A LookerReference object containing the integration settings.
+        Returns:
+            The selected data slice (str or other type).
+        """
+        if integration.row is not None:
+            row_slice = integration.row
+        else:
+            row_slice = 0
+
+        if integration.label is not None:
+            r = df.iloc[row_slice][integration.label]
+        else:
+            if integration.column is not None:
+                r = df.iloc[row_slice][integration.column]
+            else:
+                r = df
+        return r
+
     def _replace_image_with_object(
         self, slide_index, shape_number, image_stream, integration
     ):
@@ -499,29 +523,19 @@ class Cli:
 
                 try:
                     if looker_shape.shape_type == "PICTURE":
-                        logging.warning(
-                            f"Processing image for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
-                        )
                         if looker_shape.integration.result_format in ("jpg", "png"):
-                            logging.info(
-                                f"Fetching image binary data...{looker_shape.shape_number} : {looker_shape.integration.result_format}"
-                            )
-                            logging.info(looker_shape.integration)
                             image_stream = BytesIO(result)
                         else:
                             df = self._make_df(result)
-                            if looker_shape.integration.row is not None:
-                                url = df[looker_shape.integration.label][
-                                    looker_shape.integration.row
-                                ]
-                            else:
-                                url = df[looker_shape.integration.label][0]
+                            url = self._select_slice_from_df(
+                                df, looker_shape.integration
+                            )
 
                             response = requests.get(url)
                             response.raise_for_status()
                             image_stream = io.BytesIO(response.content)
 
-                        logging.info(
+                        logging.debug(
                             f"Replacing image for shape {looker_shape.shape_number} on slide {looker_shape.slide_number}..."
                         )
 
@@ -565,14 +579,9 @@ class Cli:
                             )
 
                             try:
-                                if looker_shape.integration.row is not None:
-                                    text_to_insert = df[looker_shape.integration.label][
-                                        looker_shape.integration.row
-                                    ]
-                                else:
-                                    text_to_insert = df[looker_shape.integration.label][
-                                        0
-                                    ]
+                                text_to_insert = self._select_slice_from_df(
+                                    df, looker_shape.integration
+                                )
                             except Exception as e:
                                 text_to_insert = df.to_string(index=False, header=False)
                                 logging.debug(
