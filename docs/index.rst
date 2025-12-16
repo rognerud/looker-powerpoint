@@ -9,6 +9,7 @@ A command line interface for Looker PowerPoint integration that embeds YAML meta
 
    cli
    models
+   templating
    api
 
 Quick Start

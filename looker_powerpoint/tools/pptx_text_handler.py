@@ -239,9 +239,13 @@ def process_text_field(shape, text_to_insert, df, env=None):
         return
 
     df_sanitized = sanitize_dataframe_headers(df)
-    rows = df_sanitized.to_dict(orient="records")
-    context = {"rows": rows}
-
+    header_rows = df_sanitized.to_dict(orient="records")
+    indexed_rows = df_sanitized.values.tolist()
+    context = {
+        "header_rows": header_rows,  # For access by name: {{ header_rows.col_a }}
+        "indexed_rows": indexed_rows,  # For access by index: {{ indexed_rows[0] }}
+        "headers": df_sanitized.columns.tolist(),  # Optionally, provide a list of headers
+    }
     rendered = render_text_with_jinja(full_text, context, env=env)
 
     # --- Compare old vs new to decide whether to modify ---
