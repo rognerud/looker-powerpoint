@@ -33,3 +33,10 @@ The CLI requires these environment variables for Looker API access:
 .. envvar:: LOOKERSDK_CLIENT_SECRET
 
    Looker API client secret
+
+Additional optional environment variables:
+------------------------------
+.. envvar:: LOOKERSDK_TIMEOUT
+
+   If you experience timeouts with large queries, you can set this variable to increase the timeout duration (in seconds). The default is 120 seconds for most Looker SDK clients.
+   Example: ``LOOKERSDK_TIMEOUT=300``
