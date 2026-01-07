@@ -79,6 +79,10 @@ class LookerReference(BaseModel):
         default=None,
         description="Height of the image in pixels. Used for setting image size when asking looker to return a look rendered as an image.",
     )
+    retries: int = Field(
+        default=0,
+        description="Number of retries for the Looker API request in case of failure. Defaults to 0.",
+    )
     # optional parameters for the Look (Default to None)
 
     @field_validator("id", mode="before")

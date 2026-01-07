@@ -3,6 +3,7 @@ from typing import Optional
 import looker_sdk
 from dotenv import load_dotenv, find_dotenv
 from looker_sdk import models40 as models
+from tenacity import retry, stop_after_attempt, wait_fixed, before_sleep_log
 
 
 class LookerClient:
@@ -24,21 +25,13 @@ class LookerClient:
             query_object: The query object containing the necessary parameters.
         """
 
-        try:
-            response = self.client.run_inline_query(
-                result_format=query_object["result_format"],
-                body=query_object["body"],
-                apply_vis=query_object["apply_vis"],
-                apply_formatting=query_object["apply_formatting"],
-                server_table_calcs=query_object["server_table_calcs"],
-            )
-
-        except looker_sdk.error.SDKError as e:
-            logging.error(f"Error retrieving Look with ID {id} : {e}")
-            return None
-        except Exception as e:
-            logging.error(f"Unexpected error retrieving Look with ID {id} : {e}")
-            return None
+        response = self.client.run_inline_query(
+            result_format=query_object["result_format"],
+            body=query_object["body"],
+            apply_vis=query_object["apply_vis"],
+            apply_formatting=query_object["apply_formatting"],
+            server_table_calcs=query_object["server_table_calcs"],
+        )
 
         return response
 
@@ -136,6 +129,7 @@ class LookerClient:
         apply_vis = kwargs.get("apply_vis", False)
         apply_formatting = kwargs.get("apply_formatting", False)
         server_table_calcs = kwargs.get("server_table_calcs", False)
+        retries = kwargs.get("retries", 0)
 
         query_object = {
             "shape_id": shape_id,
@@ -147,7 +141,26 @@ class LookerClient:
                 "server_table_calcs": server_table_calcs,
             },
         }
-        result = await self.run_query(query_object["query"])
+
+        try:
+
+            @retry(
+                stop=stop_after_attempt(retries + 1),
+                wait=wait_fixed(2),
+                before_sleep=before_sleep_log(logging.getLogger(), logging.WARNING),
+                reraise=True,
+            )
+            async def run_query_with_retry():
+                return await self.run_query(query_object["query"])
+
+            result = await run_query_with_retry()
+
+        except looker_sdk.error.SDKError as e:
+            logging.error(f"Error retrieving Look with ID {id} : {e}")
+            result = None
+        except Exception as e:
+            logging.error(f"Unexpected error retrieving Look with ID {id} : {e}")
+            result = None
 
         return {shape_id: result}
 
