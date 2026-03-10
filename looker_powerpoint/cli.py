@@ -43,13 +43,6 @@ class Cli:
     """
 
     def __init__(self):
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(message)s",
-            datefmt="[%X]",
-            handlers=[RichHandler()],
-        )
-
         self.client = None
         self.relevant_shapes = []
         self.looker_shapes = []
@@ -63,6 +56,8 @@ class Cli:
 
     def _init_looker(self):
         """Initialize the Looker client"""
+        if not self.args.debug_queries:
+            logging.getLogger("looker_sdk").setLevel(logging.ERROR)
         self.client = LookerClient()
 
     def _init_argparser(self):
@@ -150,7 +145,30 @@ class Cli:
             default=False,
         )
 
+        parser.add_argument(
+            "-v",
+            "--verbose",
+            action="count",
+            default=0,
+            help="Increase verbosity (e.g., -v, -vv, -vvv)",
+        )
+
         return parser
+
+    def _setup_logging(self):
+        if self.args.verbose == 0:
+            level = logging.WARNING
+        elif self.args.verbose == 1:
+            level = logging.INFO
+        else:
+            level = logging.DEBUG
+
+        logging.basicConfig(
+            level=level,
+            format="%(message)s",
+            datefmt="[%X]",
+            handlers=[RichHandler()],
+        )
 
     def _pick_file(self):
         """
@@ -317,13 +335,19 @@ class Cli:
         else:
             row_slice = 0
 
-        if integration.label is not None:
-            r = df.iloc[row_slice][integration.label]
+        row = df.iloc[row_slice]
+
+        if integration.label is not None and integration.column is not None:
+            logging.warning(
+                f"Both label and column are set for integration {integration.id}. Defaulting to label and ignoring column."
+            )
+            r = row[integration.label]
+        elif integration.label is not None:
+            r = row[integration.label]
+        elif integration.column is not None:
+            r = row.iloc[integration.column]
         else:
-            if integration.column is not None:
-                r = df.iloc[row_slice][integration.column]
-            else:
-                r = df
+            r = df
         return r
 
     def _replace_image_with_object(
@@ -478,6 +502,7 @@ class Cli:
         Main method to run the CLI application.
         """
         self.args = self.parser.parse_args()
+        self._setup_logging()
         self._pick_file()
         self._init_looker()
 
