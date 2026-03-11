@@ -21,7 +21,7 @@ running the CLI is done via `uv run lppt` command, which will execute the main f
 Testing is done using pytest, and tests are located in the test directory. To run the tests, use the command `pytest` from the root directory of the project.
 Tests should use stored fixtures for any looker data, and should not make live API calls to Looker. Mocking should be used to simulate API responses for testing purposes.
 Test pptx files with with approprate yml metadata in the alt text should be used to test the parsing and data extraction functionality of the CLI tool.
-Any generated pptx files, should have a corresponding markdown file in the test directory that accurately describes the content of the pptx file, with regards to yml metadata and expected data extraction results.
+Any generated pptx files, should have a corresponding markdown file in the test directory that accurately describes the content of the pptx file, with regards to yml metadata so it is easy for agents to understand how to use the file to create tests.
 
 ## Directory Map
 
