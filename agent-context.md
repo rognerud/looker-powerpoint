@@ -257,7 +257,7 @@ jobs:
       run: uv pip install "pandas==${{ matrix.pandas-version }}"
 
     - name: Run tests
-      run: uv run --no-sync pytest --no-cov
+      run: uv run --no-sync pytest
 
   coverage:
     runs-on: ubuntu-latest
@@ -275,7 +275,7 @@ jobs:
       run: uv sync
 
     - name: Run tests with coverage
-      run: uv run --no-sync pytest
+      run: uv run --no-sync pytest --cov=looker_powerpoint --cov-report=xml --cov-report=term-missing
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
@@ -5626,9 +5626,6 @@ dev = [
     "sphinx-autodoc-typehints>=3.5.2",
     "autodoc-pydantic>=2.2.0"
 ]
-
-[tool.pytest.ini_options]
-addopts = "--cov=looker_powerpoint --cov-report=xml --cov-report=term-missing"
 
 [tool.coverage.run]
 source = ["looker_powerpoint"]
