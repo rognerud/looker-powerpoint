@@ -6,7 +6,7 @@ The Looker PowerPoint tool enables dynamic text replacement in PowerPoint text b
 Setup
 -----
 
-To enable templating, you must first associate the PowerPoint shape with a Looker query. This is done by setting the shape's **Alt-Text** to a JSON object that matches the :class:`~looker_powerpoint.models.LookerReference` model.
+To enable templating, you must first associate the PowerPoint shape with a Looker query. This is done by setting the shape's **Alt-Text** to a YAML document that matches the :class:`~looker_powerpoint.models.LookerReference` model.
 
 For details on the Alt-Text configuration structure, please refer to the :doc:`models` documentation. Crucially, the ``id`` field must be set to the Look ID you wish to reference.
 
@@ -14,6 +14,10 @@ Jinja Context
 -------------
 
 When the tool processes a text box, it fetches the data from the associated Look and makes it available to the Jinja template. The following variables are available in the context:
+
+.. note::
+
+   Column names exposed to the template are derived from the Look's ``field_group_variant`` label. They are lowercased and whitespace is replaced with underscores (e.g. ``"Total Revenue"`` becomes ``total_revenue``). Emoji characters are also stripped. Use these sanitized names when referencing columns in your templates.
 
 *   **header_rows**: A list of rows where each row is a dictionary mapping column names to values. This allows for accessing column data by name.
 
