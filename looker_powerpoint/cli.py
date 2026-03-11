@@ -418,21 +418,98 @@ class Cli:
     def _make_df(self, result):
         """
         Create a pandas DataFrame from Looker data based on the integration settings.
-        Args:
-            result: The Looker data to convert.
+        Categorizes and sorts columns into Dimensions -> Pivots -> Table Calcs.
         """
         data = json.loads(result)
-
         fields = data.get("metadata", {}).get("fields", {})
 
-        # Combine all relevant field groups
+        # 1. Pull the injected sorts and pivots rules from the Look
+        look_sorts = data.get("custom_sorts", [])
+        look_pivots = data.get("custom_pivots", [])
+
+        # Determine if the primary pivot is sorted descending
+        pivot_descending = False
+        if look_pivots:
+            main_pivot = look_pivots[0]
+            # Looker sorts look like: "view_name.date_dim desc 0"
+            if any(main_pivot in s and "desc" in s.lower() for s in look_sorts):
+                pivot_descending = True
+
+        # Create DataFrame first to expose all dynamic column names
+        df = pd.json_normalize(data.get("rows", [])).fillna("")
+        actual_cols = list(df.columns)
+
+        # 2. Extract base names from the metadata
+        dim_bases = [f["name"] for f in fields.get("dimensions", [])]
+        calc_bases = [f["name"] for f in fields.get("table_calculations", [])]
+        measure_bases = [f["name"] for f in fields.get("measures", [])]
+
+        dims = []
+        calcs = []
+        pivots_and_measures = []
+        leftovers = []
+
+        for col in actual_cols:
+            if any(col == f"{d}.value" or col == d for d in dim_bases):
+                dims.append(col)
+            elif any(col == f"{c}.value" or col == c for c in calc_bases):
+                calcs.append(col)
+            elif "|FIELD|" in col or any(
+                col == f"{m}.value" or col == m for m in measure_bases
+            ):
+                pivots_and_measures.append(col)
+            else:
+                leftovers.append(col)
+
+        # 3. Apply Dimensions and Calcs sorting (Native query order)
+        dims.sort(
+            key=lambda x: next(
+                (i for i, d in enumerate(dim_bases) if x == f"{d}.value" or x == d), 999
+            )
+        )
+        calcs.sort(
+            key=lambda x: next(
+                (i for i, c in enumerate(calc_bases) if x == f"{c}.value" or x == c),
+                999,
+            )
+        )
+
+        # 4. Apply Looker's strict Pivot Sorting Rules
+        def parse_pivot_col(col):
+            # Break down "measure_name|FIELD|2025-03-03.value"
+            base = col.replace(".value", "")
+            if "|FIELD|" in base:
+                measure, pivot_val = base.split("|FIELD|", 1)
+                return pivot_val, measure
+            return "", base
+
+        # Get all unique pivot values and sort them based on the Look's sort direction
+        unique_pivots = sorted(
+            list(set(parse_pivot_col(c)[0] for c in pivots_and_measures))
+        )
+        if pivot_descending:
+            unique_pivots.reverse()
+
+        pivot_order_map = {val: i for i, val in enumerate(unique_pivots)}
+        measure_order_map = {m: i for i, m in enumerate(measure_bases)}
+
+        # Sort first by the properly sequenced pivot value, then by the measure's native query order
+        pivots_and_measures.sort(
+            key=lambda x: (
+                pivot_order_map.get(parse_pivot_col(x)[0], 999),
+                measure_order_map.get(parse_pivot_col(x)[1], 999),
+            )
+        )
+
+        # 5. Re-index and Rename
+        ordered_cols = dims + pivots_and_measures + calcs + leftovers
+        df = df[ordered_cols]
+
         all_fields = (
             fields.get("dimensions", [])
             + fields.get("measures", [])
             + fields.get("table_calculations", [])
         )
-
-        # Build the mapping
         mappy = {
             f"{item['name']}.value": item.get("field_group_variant", item["name"])
             .strip()
@@ -440,11 +517,6 @@ class Cli:
             .replace(" ", "_")
             for item in all_fields
         }
-        logging.debug(f"Header mapping: {mappy}")
-        # Create DataFrame
-        df = pd.json_normalize(data.get("rows", [])).fillna("")
-
-        # Apply rename
         df.rename(columns=mappy, inplace=True)
 
         return df
