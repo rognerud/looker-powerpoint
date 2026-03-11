@@ -164,8 +164,14 @@ class LookerClient:
                         parsed["custom_sorts"] = list(q.sorts) if q.sorts else []
                         parsed["custom_pivots"] = list(q.pivots) if q.pivots else []
                         result = json.dumps(parsed)
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    logging.warning(
+                        "Failed to inject custom_sorts/custom_pivots for shape_id %s, look_id %s: %s",
+                        shape_id,
+                        id,
+                        e,
+                        exc_info=True,
+                    )
 
         except looker_sdk.error.SDKError as e:
             logging.error(f"Error retrieving Look with ID {id} : {e}")
