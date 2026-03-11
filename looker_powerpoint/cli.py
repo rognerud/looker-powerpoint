@@ -498,10 +498,16 @@ class Cli:
                 return pivot_val, measure
             return "", base
 
-        # Get all unique pivot values and sort them based on the Look's sort direction
-        unique_pivots = sorted(
-            list(set(parse_pivot_col(c)[0] for c in pivots_and_measures))
-        )
+        # Get unique pivot values preserving their order of first appearance in the data
+        # (which reflects Looker's native ordering). Avoid lexicographic sorting so that
+        # numeric-like values ("2", "10") and non-ISO dates aren't misordered.
+        seen_pivots: set = set()
+        unique_pivots: list = []
+        for c in pivots_and_measures:
+            pv = parse_pivot_col(c)[0]
+            if pv not in seen_pivots:
+                seen_pivots.add(pv)
+                unique_pivots.append(pv)
         if pivot_descending:
             unique_pivots.reverse()
 
