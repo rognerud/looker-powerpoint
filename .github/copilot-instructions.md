@@ -27,12 +27,15 @@ Any generated pptx files, should have a corresponding markdown file in the test 
 
 | Path | Purpose |
 |------|---------|
-| `looker_powerpoint/` | Main Python package. Contains the CLI entry point, Looker SDK client, and Pydantic models. See `looker_powerpoint/README.md`. |
-| `looker_powerpoint/tools/` | Utility helpers for reading pptx alt-text, rendering Jinja2 templates in text frames, and inserting hyperlinks. See `looker_powerpoint/tools/README.md`. |
-| `test/` | Pytest test suite. No live API calls — all tests use inline fixtures or mocks. See `test/README.md`. |
-| `docs/` | Sphinx documentation source (RST files + `conf.py`). See `docs/README.md`. |
+| `looker_powerpoint/` | Main Python package. Contains the CLI entry point, Looker SDK client, and Pydantic models. See `looker_powerpoint/looker_powerpoint.instructions.md`. |
+| `looker_powerpoint/tools/` | Utility helpers for reading pptx alt-text, rendering Jinja2 templates in text frames, and inserting hyperlinks. See `looker_powerpoint/tools/tools.instructions.md`. |
+| `test/` | Pytest test suite. No live API calls — all tests use inline fixtures or mocks. See `test/test.instructions.md`. |
+| `docs/` | Sphinx documentation source (RST files + `conf.py`). See `docs/docs.instructions.md`. |
 | `.github/` | GitHub Actions workflows and Copilot instructions (`copilot-instructions.md`). |
 
 ## Contributing
-Contributions should prioritize adding tests for any new feature or bug fix, and to ensure that the documentation is updated accordingly.
-In addition, each directory contains a `README.md` that describes its contents and conventions; keep these up to date when adding new files or modules.
+Any contributions to the project MUST follow the following rules:
+- All new features or bug fixes must include corresponding tests in the `test/` directory.
+- Contributions should prioritize adding tests for any new feature or bug fix, and to ensure that the documentation is updated accordingly.
+- Any change has to be reflected in the documentation, and in the instructions files.
+- All contributions must add one test that is missing that improves code coverage, or adds a test for an edge case that is not currently covered.
