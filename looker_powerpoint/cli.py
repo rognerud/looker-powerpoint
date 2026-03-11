@@ -432,8 +432,23 @@ class Cli:
         if look_pivots:
             main_pivot = look_pivots[0]
             # Looker sorts look like: "view_name.date_dim desc 0"
-            if any(main_pivot in s and "desc" in s.lower() for s in look_sorts):
-                pivot_descending = True
+            # Parse sort strings by tokens so we only match the exact field name,
+            # not arbitrary substrings.
+            for sort_str in look_sorts:
+                parts = str(sort_str).split()
+                if len(parts) < 2:
+                    continue
+                field_token = parts[0]
+                # Find the first explicit direction token after the field
+                direction_token = None
+                for token in parts[1:]:
+                    token_lower = token.lower()
+                    if token_lower in ("asc", "desc"):
+                        direction_token = token_lower
+                        break
+                if field_token == main_pivot and direction_token == "desc":
+                    pivot_descending = True
+                    break
 
         # Create DataFrame first to expose all dynamic column names
         df = pd.json_normalize(data.get("rows", [])).fillna("")
