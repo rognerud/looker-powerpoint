@@ -7,7 +7,17 @@ on:
       - main
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
+        pandas-version: ["2.2.3", "latest"]
+        exclude:
+          # pandas 2.2.x does not ship wheels for Python 3.13
+          - python-version: "3.13"
+            pandas-version: "2.2.3"
     steps:
     - uses: actions/checkout@v5
 
@@ -15,7 +25,15 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
+        python-version: ${{ matrix.python-version }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Override pandas version
+      if: matrix.pandas-version != 'latest'
+      run: uv pip install "pandas==${{ matrix.pandas-version }}"
+
     - name: Run tests
-      run: uv run pytest
+      run: uv run --no-sync pytest
