@@ -96,13 +96,14 @@ README.md
 ## File: .github/workflows/copilot-setup-steps.yml
 ````yaml
 name: "Setup Environment and Git Hooks"
-description: "Installs uv, syncs dependencies, and installs pre-commit hooks for future commits"
+#description: "Installs uv, syncs dependencies, and installs pre-commit hooks for future commits"
 
 on:
   workflow_call:
 
 jobs:
-  setup-environment:
+  # Changed this from 'setup-environment' to 'copilot-setup-steps'
+  copilot-setup-steps:
     runs-on: ubuntu-latest
     steps:
       - name: Install uv
