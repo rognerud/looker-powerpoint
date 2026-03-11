@@ -24,14 +24,8 @@ Test pptx files with with approprate yml metadata in the alt text should be used
 Any generated pptx files, should have a corresponding markdown file in the test directory that accurately describes the content of the pptx file, with regards to yml metadata so it is easy for agents to understand how to use the file to create tests.
 
 ## Directory Map
-
-| Path | Purpose |
-|------|---------|
-| `looker_powerpoint/` | Main Python package. Contains the CLI entry point, Looker SDK client, and Pydantic models. See `looker_powerpoint/looker_powerpoint.instructions.md`. |
-| `looker_powerpoint/tools/` | Utility helpers for reading pptx alt-text, rendering Jinja2 templates in text frames, and inserting hyperlinks. See `looker_powerpoint/tools/tools.instructions.md`. |
-| `test/` | Pytest test suite. No live API calls — all tests use inline fixtures or mocks. See `test/test.instructions.md`. |
-| `docs/` | Sphinx documentation source (RST files + `conf.py`). See `docs/docs.instructions.md`. |
-| `.github/` | GitHub Actions workflows and Copilot instructions (`copilot-instructions.md`). |
+for up to date map look at agent-context.md file in the root of the repository.
+for folder specific instructions look at the instructions files in each folder.
 
 ## Contributing
 Any contributions to the project MUST follow the following rules:
