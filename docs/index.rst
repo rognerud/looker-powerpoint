@@ -19,16 +19,19 @@ Quick Start
 
    .. code-block:: bash
 
-      uv add looker_powerpoint
+      pip install looker-powerpoint
 
-      or
+   Or, if you are using ``uv`` to manage a project:
 
-      pip install looker_powerpoint
+   .. code-block:: bash
+
+      uv add looker-powerpoint
 
 2. Set up Looker SDK credentials:
 
    To authenticate with your Looker instance, you need to provide your Looker base URL, client ID, and client secret.
    You can either create a looker.ini file in the project root with the following content:
+
    .. code-block:: ini
 
       [looker]
@@ -36,14 +39,16 @@ Quick Start
       client_id=your_client_id
       client_secret=your_secret
 
-   Or add the environment variables in your shell before running the tool
+   Or add the environment variables in your shell before running the tool:
+
    .. code-block:: bash
 
       export LOOKERSDK_BASE_URL=https://your-looker.com
       export LOOKERSDK_CLIENT_ID=your_client_id
       export LOOKERSDK_CLIENT_SECRET=your_secret
 
-   or put the environment variables in a .env file in the project root:
+   Or put the environment variables in a .env file in the project root:
+
    .. code-block:: bash
 
       LOOKERSDK_BASE_URL=https://your-looker.com
