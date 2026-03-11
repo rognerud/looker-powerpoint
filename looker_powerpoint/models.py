@@ -1,4 +1,5 @@
 import logging
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
@@ -141,3 +142,72 @@ class LookerShape(BaseModel):
                     data["integration"]["apply_formatting"] = True
 
         return data
+
+
+class GeminiConfig(BaseModel):
+    """
+    Configuration for a Gemini LLM text synthesis shape.
+    Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
+
+    The Gemini model receives:
+
+    - The data from every meta look listed in ``contexts`` (formatted as readable
+      tables).  Each entry is the ``meta_name`` of a meta-look shape defined
+      elsewhere in the same presentation.
+    - The current text content of the shape.
+    - The optional ``prompt`` you provide.
+
+    The model's text response replaces the shape's text content while retaining the
+    original font/paragraph styling.
+
+    .. note::
+       Requires the ``google-generativeai`` package.  Install it with::
+
+           pip install looker_powerpoint[llm]
+
+       The ``GOOGLE_API_KEY`` (or ``GEMINI_API_KEY``) environment variable must also
+       be set.
+    """
+
+    type: str = Field(
+        default="gemini",
+        description="Must be 'gemini' to identify this as a Gemini synthesis config.",
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="An optional instruction/question sent to the Gemini model together with the context data.",
+    )
+    contexts: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of meta look names (``meta_name`` values) whose pre-fetched data "
+            "will be provided as context to Gemini.  Define the corresponding meta "
+            "look shapes in the same presentation with ``meta: true`` and a matching "
+            "``meta_name``."
+        ),
+    )
+    model: str = Field(
+        default="gemini-2.0-flash",
+        description="The Gemini model name to use for synthesis.",
+    )
+
+    @field_validator("type")
+    @classmethod
+    def type_must_be_gemini(cls, v):
+        if v != "gemini":
+            raise ValueError("type must be 'gemini' for GeminiConfig")
+        return v
+
+
+class GeminiShape(BaseModel):
+    """
+    A Pydantic model for a PowerPoint text-box shape configured for Gemini LLM synthesis.
+    """
+
+    shape_id: str
+    shape_type: str
+    slide_number: int
+    shape_width: Optional[int] = Field(default=None)
+    shape_height: Optional[int] = Field(default=None)
+    integration: GeminiConfig
+    shape_number: Optional[int] = Field(default=None)

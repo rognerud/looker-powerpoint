@@ -342,6 +342,99 @@ time out.
 ``lppt`` will retry the Looker API request up to 3 times before marking the shape as
 failed.
 
+
+Pattern 10 — Gemini LLM text synthesis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Use this when:** You want a text box populated with an AI-generated summary or
+analysis of your Looker data, rather than raw values.
+
+This feature uses Google Gemini to synthesise the text.  It **only works for text
+box shapes** (``TEXT_BOX``, ``TITLE``, ``AUTO_SHAPE``).  Applying it to a table,
+image, or chart shape will log a warning and skip that shape.
+
+**Step 1 — Define one or more meta looks**
+
+Add meta-look shapes to your presentation for each dataset you want Gemini to
+analyse.  Set the shape's Alt Text to:
+
+.. code-block:: yaml
+
+   id: 42
+   meta: true
+   meta_name: sales_data
+
+The ``meta_name`` value (``sales_data`` here) is the key you will reference from
+the Gemini shape.  Meta-look shapes are removed from the output slide; their data
+is only used as context.
+
+**Step 2 — Configure the Gemini text box**
+
+Add a text box to your slide and set its Alt Text to:
+
+.. code-block:: yaml
+
+   type: gemini
+   prompt: Summarise the top three sales trends and highlight any risks.
+   contexts:
+     - sales_data
+
+The ``contexts`` list must contain the ``meta_name`` values of the meta-look shapes
+you defined in Step 1.  You can list multiple meta looks to give Gemini richer
+context:
+
+.. code-block:: yaml
+
+   type: gemini
+   prompt: Compare revenue and cost trends and provide an executive summary.
+   contexts:
+     - revenue_data
+     - cost_data
+
+**Optional fields:**
+
+.. code-block:: yaml
+
+   type: gemini
+   prompt: Summarise in one sentence.
+   contexts:
+     - sales_data
+   model: gemini-1.5-pro   # default: gemini-2.0-flash
+
+**Step 3 — Install the LLM extra and set your API key**
+
+.. code-block:: bash
+
+   pip install "looker_powerpoint[llm]"
+
+Then set your Gemini API key:
+
+.. code-block:: bash
+
+   export GOOGLE_API_KEY="your-api-key"
+
+**Step 4 — Run ``lppt`` as usual**
+
+.. code-block:: bash
+
+   uv run lppt -f my_presentation.pptx
+
+``lppt`` will fetch the meta looks, call Gemini with the data and your prompt, and
+replace the text box content with the AI-generated response while preserving the
+original font and paragraph styling.
+
+.. note::
+
+   If ``google-generativeai`` is not installed, ``lppt`` still runs normally for all
+   other shapes; Gemini synthesis shapes are silently skipped with a warning.  This
+   means the package works without the LLM extra installed.
+
+.. tip::
+
+   If Gemini synthesis fails (e.g. bad API key, quota exceeded), ``lppt`` writes the
+   error message into the text box and draws a red outline around it — the same
+   behaviour as other shape errors.  Use ``--hide-errors`` to suppress the outline.
+
 ----
 
 Troubleshooting
@@ -353,6 +446,9 @@ Troubleshooting
    out of range.  Run with ``--verbose`` (or ``-vvv``) to see detailed error messages.
    Use ``--hide-errors`` to suppress the red outlines in the output file.
 
+   For Gemini shapes specifically, the error message is also written into the text box
+   so you can see exactly what went wrong without needing verbose logging.
+
 **Nothing happened to my shape**
    Make sure your YAML is in the **Description** field of Alt Text (not the *Title*
    field), and that it is valid YAML.  You can validate YAML at
@@ -363,6 +459,16 @@ Troubleshooting
    Open the Look in Looker and check the exact column label. If in doubt, use
    index-based access: ``{{ indexed_rows[0][0] }}``.
 
+**Gemini synthesis shape is skipped with a warning**
+   Make sure ``google-generativeai`` is installed (``pip install looker_powerpoint[llm]``),
+   ``GOOGLE_API_KEY`` or ``GEMINI_API_KEY`` is set, and ``type: gemini`` is set in the
+   **Description** field (not *Title*).
+
+**Context data not found**
+   ``lppt`` logs a warning if a ``meta_name`` listed in ``contexts`` has no
+   corresponding meta-look shape in the presentation.  Check that the ``meta_name``
+   in your meta-look shape's alt text exactly matches the string in ``contexts``.
+
 ----
 
 Next Steps
@@ -370,6 +476,7 @@ Next Steps
 
 * :doc:`templating` — Full reference for Jinja2 variables and the ``colorize_positive``
   filter.
-* :doc:`models` — Complete field reference for the ``LookerReference`` YAML schema.
+* :doc:`models` — Complete field reference for the ``LookerReference`` and
+  ``GeminiConfig`` YAML schemas.
 * :doc:`cli` — All CLI flags, environment variables, and advanced options.
 * :doc:`api` — Auto-generated API reference for developers.
