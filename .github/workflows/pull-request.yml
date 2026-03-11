@@ -5,12 +5,16 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
 
 jobs:
   test:
+    if: github.event_name == 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -68,6 +72,7 @@ jobs:
         fail_ci_if_error: false
 
   update-ai-context:
+    if: github.event_name == 'pull_request'
     # Run this on a single, fast Linux runner
     runs-on: ubuntu-latest
     # Elevate permissions so the bot can push back to the branch
