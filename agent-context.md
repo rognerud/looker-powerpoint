@@ -107,7 +107,7 @@ jobs:
     steps:
       # ADDED: Pulls your code into the runner
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
