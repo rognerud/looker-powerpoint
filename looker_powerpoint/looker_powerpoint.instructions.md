@@ -30,14 +30,36 @@ Set `type: gemini` in the alt text of a **text box** shape:
 
 ```yaml
 type: gemini
+gemini_id: summary          # optional; gemini_ prefix auto-added → gemini_summary
 prompt: Summarise the key trends.
 contexts:
-  - sales_data      # meta_name of a meta-look shape in the same presentation
-model: gemini-2.0-flash   # optional, default shown
+  - slide_self              # other shapes' text on this slide
+  - sales_data              # meta_name of a Looker meta-look
+  - gemini_analysis         # output of another Gemini box (gemini_id: analysis)
+  - self                    # this shape's own current text
+model: gemini-2.0-flash     # optional, default shown
 ```
 
-- `contexts` is a list of `meta_name` strings; each name must match a meta-look
-  shape (a shape with `meta: true` and `meta_name: <name>` in its alt text).
+### `contexts` — unified context framework
+
+Each entry is one of four types (resolved in order):
+
+| Entry | Resolves to |
+|-------|-------------|
+| `"self"` | Shape's own current text before synthesis |
+| `"slide_self"` | Text of all other shapes on the slide after Looker rendering |
+| `"gemini_<id>"` | Output of another Gemini box whose `gemini_id` is `<id>` |
+| anything else | Looker meta-look data from `self.data[meta_name]` |
+
+### Chaining / topological sort
+
+Boxes that reference other boxes via `gemini_<id>` are automatically sorted
+by `_sort_gemini_shapes_by_dependency()` (Kahn's topological sort) so
+dependencies always run first.  Circular references raise `ValueError`.
+
+The `gemini_` prefix is auto-added to `gemini_id` by `GeminiConfig`'s
+`ensure_gemini_prefix` validator.
+
 - Only `TEXT_BOX`, `TITLE`, and `AUTO_SHAPE` types are supported; other types log a
   warning and are skipped.
 - Requires the `llm` optional extra: `pip install looker_powerpoint[llm]`.

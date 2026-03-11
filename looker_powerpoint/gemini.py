@@ -1,8 +1,8 @@
 """
 Optional Gemini LLM integration for text synthesis.
 
-This module wraps the ``google-generativeai`` SDK.  If that package is not
-installed the helpers in this module still import cleanly; they will raise an
+This module wraps the ``google-genai`` SDK.  If that package is not installed
+the helpers in this module still import cleanly; they will raise an
 :class:`ImportError` with a helpful message when called.
 
 Install the optional dependency with::
@@ -17,7 +17,7 @@ import logging
 import os
 
 try:
-    import google.generativeai as genai  # type: ignore[import]
+    from google import genai  # type: ignore[import]
 
     _HAS_GEMINI = True
 except ImportError:  # pragma: no cover
@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover
 
 
 def is_available() -> bool:
-    """Return ``True`` if the ``google-generativeai`` package is installed."""
+    """Return ``True`` if the ``google-genai`` package is installed."""
     return _HAS_GEMINI
 
 
@@ -43,10 +43,13 @@ def synthesize(
     prompt:
         An optional user-supplied instruction or question that guides the model.
     context_data_str:
-        Looker data pre-formatted as a human-readable string (tables, values …).
+        Pre-assembled context string built from the shape's ``contexts`` list.
+        May include Looker data, slide text, prior Gemini results, or the
+        shape's own current text — depending on what the user configured.
+        Each section is separated by a blank line and prefixed with a label.
     current_text:
-        The current text content of the PowerPoint shape.  Passed to the model
-        so it can understand the original intent/formatting of the text.
+        The current text content of the PowerPoint shape.  Always passed so the
+        model knows it is producing a replacement for existing slide text.
     model_name:
         Gemini model identifier, e.g. ``"gemini-2.0-flash"``.
 
@@ -58,13 +61,13 @@ def synthesize(
     Raises
     ------
     ImportError
-        If ``google-generativeai`` is not installed.
+        If ``google-genai`` is not installed.
     ValueError
         If no API key is configured.
     """
     if not _HAS_GEMINI:
         raise ImportError(
-            "google-generativeai is not installed. "
+            "google-genai is not installed. "
             "Install it with 'pip install looker_powerpoint[llm]' to use LLM features."
         )
 
@@ -75,15 +78,15 @@ def synthesize(
             "Set one of them to enable Gemini synthesis."
         )
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     parts: list[str] = []
 
     if context_data_str:
-        parts.append(f"Context data:\n{context_data_str}")
+        parts.append(f"Context:\n{context_data_str}")
 
     if current_text:
-        parts.append(f"Current text in the slide:\n{current_text}")
+        parts.append(f"Current text in the shape:\n{current_text}")
 
     if prompt:
         parts.append(f"Instructions:\n{prompt}")
@@ -97,6 +100,8 @@ def synthesize(
     full_prompt = "\n\n".join(parts)
     logging.debug("Gemini prompt (truncated): %s", full_prompt[:200])
 
-    model = genai.GenerativeModel(model_name)
-    response = model.generate_content(full_prompt)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=full_prompt,
+    )
     return response.text

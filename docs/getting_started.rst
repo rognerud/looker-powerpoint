@@ -347,13 +347,13 @@ Pattern 10 — Gemini LLM text synthesis
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Use this when:** You want a text box populated with an AI-generated summary or
-analysis of your Looker data, rather than raw values.
+analysis, rather than raw values.
 
-This feature uses Google Gemini to synthesise the text.  It **only works for text
+This feature uses Google Gemini to synthesise text.  It **only works for text
 box shapes** (``TEXT_BOX``, ``TITLE``, ``AUTO_SHAPE``).  Applying it to a table,
 image, or chart shape will log a warning and skip that shape.
 
-**Step 1 — Define one or more meta looks**
+**Step 1 — Define one or more meta looks (optional)**
 
 Add meta-look shapes to your presentation for each dataset you want Gemini to
 analyse.  Set the shape's Alt Text to:
@@ -379,17 +379,76 @@ Add a text box to your slide and set its Alt Text to:
    contexts:
      - sales_data
 
-The ``contexts`` list must contain the ``meta_name`` values of the meta-look shapes
-you defined in Step 1.  You can list multiple meta looks to give Gemini richer
-context:
+**The ``contexts`` list — unified context framework**
+
+Each entry in ``contexts`` is resolved in order and passed to Gemini as a
+labelled section.  Four types of entry are supported:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Entry
+     - What it provides
+   * - ``self``
+     - The shape's own current text (before synthesis).
+   * - ``slide_self``
+     - Text of all other shapes on the same slide after Looker data has been
+       rendered.  Gives the model awareness of what the slide is about.
+   * - ``gemini_<id>``
+     - The synthesised output of another Gemini text box whose ``gemini_id``
+       is ``<id>`` (see chaining below).
+   * - anything else
+     - Treated as the ``meta_name`` of a Looker meta-look shape; its
+       pre-fetched data is formatted as a readable table.
+
+Example combining all four types:
 
 .. code-block:: yaml
 
    type: gemini
-   prompt: Compare revenue and cost trends and provide an executive summary.
+   gemini_id: summary
+   prompt: Write a one-paragraph executive summary.
+   contexts:
+     - slide_self          # what the slide says
+     - sales_data          # Looker data
+     - gemini_analysis     # output of another Gemini box
+     - self                # current placeholder text as additional hint
+
+**Chaining Gemini boxes**
+
+Gemini boxes can reference each other.  A box with ``gemini_id: analysis``
+(stored as ``gemini_analysis`` — the prefix is added automatically) can be
+used as context by another box:
+
+.. code-block:: yaml
+
+   # Box 1 — data analysis
+   type: gemini
+   gemini_id: analysis          # stored as gemini_analysis
+   prompt: Analyse the revenue data and list the top three trends.
    contexts:
      - revenue_data
-     - cost_data
+
+.. code-block:: yaml
+
+   # Box 2 — executive summary that builds on Box 1
+   type: gemini
+   gemini_id: summary           # stored as gemini_summary
+   prompt: Write a concise executive summary based on the analysis.
+   contexts:
+     - slide_self
+     - gemini_analysis          # Box 1's output
+
+``lppt`` automatically detects these dependencies and processes boxes in the
+correct topological order.  Circular references are detected and reported as
+an error.
+
+.. note::
+
+   The ``gemini_`` prefix is added to ``gemini_id`` values automatically.
+   ``gemini_id: analysis`` and ``gemini_id: gemini_analysis`` are equivalent.
+   Always use the full ``gemini_<id>`` form when referencing a box in ``contexts``.
 
 **Optional fields:**
 
@@ -419,21 +478,22 @@ Then set your Gemini API key:
 
    uv run lppt -f my_presentation.pptx
 
-``lppt`` will fetch the meta looks, call Gemini with the data and your prompt, and
-replace the text box content with the AI-generated response while preserving the
-original font and paragraph styling.
+``lppt`` will fetch the meta looks, call Gemini with the assembled context and
+your prompt, and replace the text box content with the AI-generated response
+while preserving the original font and paragraph styling.
 
 .. note::
 
-   If ``google-generativeai`` is not installed, ``lppt`` still runs normally for all
-   other shapes; Gemini synthesis shapes are silently skipped with a warning.  This
-   means the package works without the LLM extra installed.
+   If ``google-genai`` is not installed, ``lppt`` still runs normally for all
+   other shapes; Gemini synthesis shapes are silently skipped with a warning.
+   This means the package works without the LLM extra installed.
 
 .. tip::
 
-   If Gemini synthesis fails (e.g. bad API key, quota exceeded), ``lppt`` writes the
-   error message into the text box and draws a red outline around it — the same
-   behaviour as other shape errors.  Use ``--hide-errors`` to suppress the outline.
+   If Gemini synthesis fails (e.g. bad API key, quota exceeded), ``lppt`` writes
+   the error message into the text box and draws a red outline around it — the
+   same behaviour as other shape errors.  Use ``--hide-errors`` to suppress the
+   outline.
 
 ----
 
@@ -460,14 +520,18 @@ Troubleshooting
    index-based access: ``{{ indexed_rows[0][0] }}``.
 
 **Gemini synthesis shape is skipped with a warning**
-   Make sure ``google-generativeai`` is installed (``pip install looker_powerpoint[llm]``),
+   Make sure ``google-genai`` is installed (``pip install looker_powerpoint[llm]``),
    ``GOOGLE_API_KEY`` or ``GEMINI_API_KEY`` is set, and ``type: gemini`` is set in the
    **Description** field (not *Title*).
 
 **Context data not found**
-   ``lppt`` logs a warning if a ``meta_name`` listed in ``contexts`` has no
-   corresponding meta-look shape in the presentation.  Check that the ``meta_name``
-   in your meta-look shape's alt text exactly matches the string in ``contexts``.
+   ``lppt`` logs a warning for each ``contexts`` entry it cannot resolve.
+   Check that meta-look ``meta_name`` values and ``gemini_<id>`` references
+   exactly match the corresponding shapes in the presentation.
+
+**Circular dependency in Gemini boxes**
+   If ``lppt`` reports a circular dependency error, check the ``contexts`` lists
+   of your Gemini boxes for cycles (e.g. A → B → A).
 
 ----
 

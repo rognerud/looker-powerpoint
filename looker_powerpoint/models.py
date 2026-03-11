@@ -149,19 +149,22 @@ class GeminiConfig(BaseModel):
     Configuration for a Gemini LLM text synthesis shape.
     Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
 
-    The Gemini model receives:
+    The Gemini model receives an assembled context built from the ordered
+    ``contexts`` list, then produces replacement text for the shape.
 
-    - The data from every meta look listed in ``contexts`` (formatted as readable
-      tables).  Each entry is the ``meta_name`` of a meta-look shape defined
-      elsewhere in the same presentation.
-    - The current text content of the shape.
-    - The optional ``prompt`` you provide.
+    Each entry in ``contexts`` is resolved by type:
 
-    The model's text response replaces the shape's text content while retaining the
-    original font/paragraph styling.
+    * ``"self"`` — the shape's own current text (before synthesis).
+    * ``"slide_self"`` — text of all other shapes on the same slide after Looker
+      data has been rendered (i.e. the slide this comment will appear on).
+    * Any string starting with ``gemini_`` — the synthesized output of another
+      Gemini text box whose ``gemini_id`` matches.  Those boxes are automatically
+      processed first.
+    * Anything else — treated as the ``meta_name`` of a Looker meta-look shape;
+      its pre-fetched data is formatted as a readable table.
 
     .. note::
-       Requires the ``google-generativeai`` package.  Install it with::
+       Requires the ``google-genai`` package.  Install it with::
 
            pip install looker_powerpoint[llm]
 
@@ -173,6 +176,14 @@ class GeminiConfig(BaseModel):
         default="gemini",
         description="Must be 'gemini' to identify this as a Gemini synthesis config.",
     )
+    gemini_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "A unique identifier for this Gemini shape within the presentation. "
+            "The ``gemini_`` prefix is added automatically if omitted. "
+            "Required if another Gemini shape references this box via its contexts list."
+        ),
+    )
     prompt: Optional[str] = Field(
         default=None,
         description="An optional instruction/question sent to the Gemini model together with the context data.",
@@ -180,10 +191,9 @@ class GeminiConfig(BaseModel):
     contexts: List[str] = Field(
         default_factory=list,
         description=(
-            "List of meta look names (``meta_name`` values) whose pre-fetched data "
-            "will be provided as context to Gemini.  Define the corresponding meta "
-            "look shapes in the same presentation with ``meta: true`` and a matching "
-            "``meta_name``."
+            "Ordered list of context references for this Gemini shape. Each entry "
+            "is one of: ``'self'``, ``'slide_self'``, a ``gemini_<id>`` string "
+            "referencing another Gemini box, or a Looker meta-look ``meta_name``."
         ),
     )
     model: str = Field(
@@ -196,6 +206,14 @@ class GeminiConfig(BaseModel):
     def type_must_be_gemini(cls, v):
         if v != "gemini":
             raise ValueError("type must be 'gemini' for GeminiConfig")
+        return v
+
+    @field_validator("gemini_id", mode="before")
+    @classmethod
+    def ensure_gemini_prefix(cls, v):
+        """Auto-add the ``gemini_`` prefix when the user omits it."""
+        if v is not None and not str(v).startswith("gemini_"):
+            return f"gemini_{v}"
         return v
 
 
