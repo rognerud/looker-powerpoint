@@ -3,4 +3,4 @@
 # Looker Powerpoint CLI (lppt)
 ## integrate looker looks with microsoft powerpoint presentations
 
-[Documentation](https://rognerud.github.io/looker-powerpoint/)
+[Documentation here](https://rognerud.github.io/looker-powerpoint/)
