@@ -26,3 +26,63 @@ Or, to run only this suite:
 ```bash
 pytest test/test_cli.py
 ```
+
+## CI matrix configuration
+
+The GitHub Actions CI pipeline (`pull-request.yml`) runs a matrix of combinations to verify compatibility across environments:
+
+| Dimension | Values |
+|-----------|--------|
+| **OS** | `ubuntu-latest`, `windows-latest`, `macos-latest` |
+| **Python** | `3.12`, `3.13` |
+| **pandas** | `2.2.3`, `latest` (locked version) |
+
+The combination `python-version: "3.13"` + `pandas-version: "2.2.3"` is excluded because pandas 2.2.x does not ship Python 3.13 wheels.
+
+### How the pandas override works
+
+1. `uv sync` installs the locked environment (pandas 3.x from `uv.lock`).
+2. When `matrix.pandas-version != 'latest'`, `uv pip install "pandas==<version>"` force-installs the requested version directly into the project virtual environment.
+3. `uv run --no-sync pytest` runs the tests using that environment without re-syncing (which would overwrite the pinned version).
+
+## Testing locally with a specific matrix combination
+
+Agents and developers can simulate any matrix combination locally without running the full CI pipeline.
+
+### Run with the default (locked) pandas version
+
+```bash
+uv sync
+uv run pytest
+```
+
+### Run with a specific pandas version
+
+```bash
+uv sync
+uv pip install "pandas==2.2.3"
+uv run --no-sync pytest
+```
+
+### Run with a specific Python version
+
+Use `uv python pin` or the `--python` flag to select the interpreter:
+
+```bash
+uv sync --python 3.12
+uv run --python 3.12 pytest
+```
+
+### Combine: specific Python *and* specific pandas
+
+```bash
+uv sync --python 3.12
+uv pip install "pandas==2.2.3"
+uv run --python 3.12 --no-sync pytest
+```
+
+### Restore the default environment after overriding pandas
+
+```bash
+uv sync   # re-syncs to the locked versions
+```
