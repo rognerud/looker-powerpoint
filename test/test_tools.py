@@ -27,6 +27,7 @@ from looker_powerpoint.tools.pptx_text_handler import (
     copy_run_format,
     decode_marked_segments,
     encode_colored_text,
+    extract_text_and_run_meta,
     make_jinja_env,
     process_text_field,
     remove_emojis_from_string,
@@ -745,3 +746,42 @@ class TestAddTextWithNumberedLinks:
                 if r.hyperlink and r.hyperlink.address:
                     assert r.font.underline is True
                     assert r.font.color.rgb == RGBColor(0, 0, 255)
+
+
+# ---------------------------------------------------------------------------
+# Tests – pptx_text_handler.py  (extract_text_and_run_meta)
+# ---------------------------------------------------------------------------
+
+class TestExtractTextAndRunMeta:
+    """Tests for extract_text_and_run_meta."""
+
+    def test_single_run_returns_full_text(self):
+        """A single-paragraph, single-run text frame returns the run text."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        tf.text = "hello"
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        assert full_text == "hello"
+
+    def test_run_meta_contains_run_objects(self):
+        """run_meta entries with text include the original run object."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        tf.text = "world"
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        run_entries = [m for m in run_meta if m["run_obj"] is not None]
+        assert len(run_entries) >= 1
+        assert run_entries[0]["text"] == "world"
+
+    def test_empty_text_frame_returns_empty_string(self):
+        """An empty text frame returns an empty full_text string."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        assert full_text == ""
