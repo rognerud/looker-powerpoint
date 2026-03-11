@@ -43,9 +43,6 @@ dev = [
     "autodoc-pydantic>=2.2.0"
 ]
 
-[tool.pytest.ini_options]
-addopts = "--cov=looker_powerpoint --cov-report=xml --cov-report=term-missing"
-
 [tool.coverage.run]
 source = ["looker_powerpoint"]
 omit = ["*/__init__.py"]
