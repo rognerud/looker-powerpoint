@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#e8e8e8" rx="8"/>
+  <rect x="20" y="20" width="600" height="320" fill="#ffffff" stroke="#cccccc" stroke-width="1" rx="4"/>
+  <rect x="20" y="20" width="600" height="40" fill="#d0d0d0" rx="4"/>
+  <text x="320" y="45" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#555555">[ PLACEHOLDER IMAGE ]</text>
+  <text x="320" y="110" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">Screenshot: A terminal window running the lppt command,</text>
+  <text x="320" y="132" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">e.g.: uv run lppt -f my_presentation.pptx</text>
+  <text x="320" y="154" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">showing progress output and a success message.</text>
+  <text x="320" y="230" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#888888">Replace this file with an actual screenshot of a terminal</text>
+  <text x="320" y="248" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#888888">session running the lppt command successfully.</text>
+</svg>

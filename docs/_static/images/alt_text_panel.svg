@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#e8e8e8" rx="8"/>
+  <rect x="20" y="20" width="600" height="320" fill="#ffffff" stroke="#cccccc" stroke-width="1" rx="4"/>
+  <rect x="20" y="20" width="600" height="40" fill="#d0d0d0" rx="4"/>
+  <text x="320" y="45" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#555555">[ PLACEHOLDER IMAGE ]</text>
+  <text x="320" y="110" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">Screenshot: Right-clicking on a PowerPoint shape</text>
+  <text x="320" y="132" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">to open the context menu, with the cursor hovering over</text>
+  <text x="320" y="154" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#333333">"Edit Alt Text..." option in the menu.</text>
+  <text x="320" y="210" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#888888">Replace this file with an actual screenshot showing</text>
+  <text x="320" y="228" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#888888">how to access the Alt Text panel in PowerPoint.</text>
+  <rect x="200" y="260" width="240" height="40" fill="none" stroke="#aaaaaa" stroke-width="1" stroke-dasharray="4,4" rx="4"/>
+  <text x="320" y="285" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#aaaaaa">Context menu → Edit Alt Text…</text>
+</svg>

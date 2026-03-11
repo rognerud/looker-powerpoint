@@ -842,3 +842,74 @@ class TestLookerShapeModel:
     def test_slide_number_stored(self):
         shape = LookerShape.model_validate(self._base_data("TEXT_BOX"))
         assert shape.slide_number == 0
+
+
+class TestLookerReferenceConfigurationPatterns:
+    """Tests that validate the YAML configuration patterns documented in
+    docs/getting_started.rst.  Each test corresponds to one documented pattern
+    and confirms that LookerReference accepts the configuration without error.
+    """
+
+    def test_pattern_simple_id_only(self):
+        """Pattern 1 – minimum viable config: only ``id`` is required."""
+        ref = LookerReference(id=42)
+        assert ref.id == "42"
+        assert ref.id_type == "look"
+
+    def test_pattern_row_and_column_selection(self):
+        """Pattern 2 – single value extraction by row and column index."""
+        ref = LookerReference(id=42, row=0, column=1)
+        assert ref.row == 0
+        assert ref.column == 1
+
+    def test_pattern_label_selection(self):
+        """Pattern 3 – single value extraction by column label."""
+        ref = LookerReference(id=42, row=0, label="Total Revenue")
+        assert ref.label == "Total Revenue"
+        assert ref.row == 0
+
+    def test_pattern_image_result_format(self):
+        """Pattern 4 – fetch a Looker chart as a PNG image."""
+        ref = LookerReference(id=42, result_format="png")
+        assert ref.result_format == "png"
+
+    def test_pattern_image_explicit_dimensions(self):
+        """Pattern 4 variant – explicit pixel dimensions for image rendering."""
+        ref = LookerReference(id=42, result_format="png", image_width=1200, image_height=675)
+        assert ref.image_width == 1200
+        assert ref.image_height == 675
+
+    def test_pattern_apply_formatting(self):
+        """Pattern 8 – ask Looker to return pre-formatted value strings."""
+        ref = LookerReference(id=42, apply_formatting=True)
+        assert ref.apply_formatting is True
+
+    def test_pattern_filter_field(self):
+        """Pattern 7 – dynamic CLI filter applied to a Looker dimension."""
+        ref = LookerReference(id=42, filter="orders.region")
+        assert ref.filter == "orders.region"
+
+    def test_pattern_filter_overwrites(self):
+        """Pattern 7 variant – static filter overrides baked into the YAML."""
+        ref = LookerReference(
+            id=42,
+            filter_overwrites={"orders.status": "complete", "orders.region": "EMEA"},
+        )
+        assert ref.filter_overwrites == {"orders.status": "complete", "orders.region": "EMEA"}
+
+    def test_pattern_retries(self):
+        """Pattern 9 – retry on transient Looker API failures."""
+        ref = LookerReference(id=42, retries=3)
+        assert ref.retries == 3
+
+    def test_pattern_id_accepts_integer(self):
+        """id field accepts an integer and converts it to a string."""
+        ref = LookerReference(id=99)
+        assert ref.id == "99"
+        assert isinstance(ref.id, str)
+
+    def test_pattern_id_accepts_string(self):
+        """id field accepts a string directly."""
+        ref = LookerReference(id="99")
+        assert ref.id == "99"
+
