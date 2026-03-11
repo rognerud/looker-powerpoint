@@ -2,6 +2,7 @@ import logging
 import re
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.util import Pt
 from jinja2 import Environment, BaseLoader
 import pandas as pd
 from pptx.dml.color import MSO_COLOR_TYPE
@@ -102,7 +103,6 @@ def copy_run_format(src_run, dest_run):
         dest_run.font.bold = src_run.font.bold
         dest_run.font.italic = src_run.font.italic
         dest_run.font.underline = src_run.font.underline
-        dest_run.font.strike = src_run.font.strike
         if src_run.font.name:
             dest_run.font.name = src_run.font.name
         if src_run.font.size:
@@ -269,6 +269,7 @@ def update_text_frame_preserving_formatting(text_frame, new_text):
     p = text_frame.paragraphs[0]
     runs = p.runs
     font = runs[0].font if runs else None
+    color = None
     if font and getattr(font, "color", None):
         col = font.color
         try:
