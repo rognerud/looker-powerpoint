@@ -1,0 +1,44 @@
+name: Update Agent Context File
+
+on:
+
+  push:
+    branches:
+      - main
+    # Optional: Only run if actual code/docs change
+    paths-ignore:
+      - 'agent-context.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-context:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Repomix to generate AI context
+        # This generates a repomix-output.md by default,
+        # but you can customize it via CLI flags
+        run: npx repomix --format markdown --output agent-context.md --ignore "agent-context.md,package-lock.json"
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add agent-context.md
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update agent-context.md [skip ci]"
+            git push
+          fi
