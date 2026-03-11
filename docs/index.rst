@@ -7,10 +7,13 @@ A command line interface for Looker PowerPoint integration that embeds YAML meta
    :maxdepth: 2
    :caption: Contents:
 
+   getting_started
    cli
    models
    templating
    api
+
+.. _quick-start:
 
 Quick Start
 ===========
