@@ -1,4 +1,5 @@
 import logging
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
@@ -141,3 +142,124 @@ class LookerShape(BaseModel):
                     data["integration"]["apply_formatting"] = True
 
         return data
+
+
+class GeminiContextRef(BaseModel):
+    """
+    A reference to a Looker Look used as context data for Gemini synthesis.
+    Supports a subset of LookerReference fields relevant for data retrieval.
+    """
+
+    id: str = Field(
+        ...,
+        description="The ID of the Look to use as context data for Gemini.",
+    )
+    row: Optional[int] = Field(
+        default=None,
+        description="If set, only this row (0-indexed) is passed as context.",
+    )
+    column: Optional[int] = Field(
+        default=None,
+        description="If set, only this column (0-indexed) is passed as context.",
+    )
+    label: Optional[str] = Field(
+        default=None,
+        description="If set, only the column matching this label is passed as context.",
+    )
+    filter: Optional[str] = Field(
+        default=None,
+        description="LookML field name to filter on using the --filter CLI argument.",
+    )
+    filter_overwrites: Optional[dict] = Field(
+        default=None,
+        description="A dictionary of filter overwrites to apply to the Look.",
+    )
+    result_format: str = Field(
+        default="json_bi",
+        description="The format to return the results in. Defaults to 'json_bi'.",
+    )
+    apply_formatting: bool = Field(
+        default=False,
+        description="Apply Looker-specified formatting to each result.",
+    )
+    apply_vis: bool = Field(
+        default=True,
+        description="Apply Looker visualization options to results.",
+    )
+    server_table_calcs: bool = Field(
+        default=True,
+        description="Whether to compute table calculations on the Looker server.",
+    )
+    retries: int = Field(
+        default=0,
+        description="Number of retries for the Looker API request in case of failure.",
+    )
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def convert_int(cls, value):
+        """Validation: Convert integer values to strings."""
+        if isinstance(value, int):
+            return str(value)
+        return value
+
+
+class GeminiConfig(BaseModel):
+    """
+    Configuration for a Gemini LLM text synthesis shape.
+    Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
+
+    The Gemini model receives:
+    - The data from each Look listed in ``contexts`` (formatted as readable tables).
+    - The current text content of the shape.
+    - The optional ``prompt`` you provide.
+
+    The model's text response replaces the shape's text content while retaining the
+    original font/paragraph styling.
+
+    .. note::
+       Requires the ``google-generativeai`` package.  Install it with::
+
+           pip install looker_powerpoint[llm]
+
+       The ``GOOGLE_API_KEY`` (or ``GEMINI_API_KEY``) environment variable must also
+       be set.
+    """
+
+    type: str = Field(
+        default="gemini",
+        description="Must be 'gemini' to identify this as a Gemini synthesis config.",
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="An optional instruction/question sent to the Gemini model together with the context data.",
+    )
+    contexts: List[GeminiContextRef] = Field(
+        default_factory=list,
+        description="List of Looker Looks to fetch and provide as context data to Gemini.",
+    )
+    model: str = Field(
+        default="gemini-2.0-flash",
+        description="The Gemini model name to use for synthesis.",
+    )
+
+    @field_validator("type")
+    @classmethod
+    def type_must_be_gemini(cls, v):
+        if v != "gemini":
+            raise ValueError("type must be 'gemini' for GeminiConfig")
+        return v
+
+
+class GeminiShape(BaseModel):
+    """
+    A Pydantic model for a PowerPoint text-box shape configured for Gemini LLM synthesis.
+    """
+
+    shape_id: str
+    shape_type: str
+    slide_number: int
+    shape_width: Optional[int] = Field(default=None)
+    shape_height: Optional[int] = Field(default=None)
+    integration: GeminiConfig
+    shape_number: Optional[int] = Field(default=None)
