@@ -28,7 +28,7 @@ jobs:
       - name: Run Repomix to generate AI context
         # This generates a repomix-output.md by default,
         # but you can customize it via CLI flags
-        run: npx repomix --format markdown --output agent-context.md --ignore "agent-context.md,package-lock.json"
+        run: npx repomix --style markdown --output agent-context.md --ignore "agent-context.md,package-lock.json"
 
       - name: Commit and push changes
         run: |
