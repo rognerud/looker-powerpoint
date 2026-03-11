@@ -6,7 +6,7 @@ from looker_powerpoint.tools.find_alt_text import (
     get_presentation_objects_with_descriptions,
 )
 from looker_powerpoint.looker import LookerClient
-from looker_powerpoint.models import LookerShape, GeminiConfig, GeminiShape
+from looker_powerpoint.models import LookerShape, GeminiShape
 from looker_powerpoint import gemini as gemini_module
 
 from looker_powerpoint.tools.pptx_text_handler import (
@@ -438,12 +438,14 @@ class Cli:
         Process all shapes configured for Gemini LLM synthesis.
 
         For each GeminiShape:
-        1. Warn if the shape is not a text box and skip it.
-        2. Collect context DataFrames from pre-fetched Looker data.
-        3. Call the Gemini API with the formatted context, current text, and prompt.
-        4. Replace the shape's text while preserving its formatting.
-        5. On error: draw a red outline around the shape and populate the error
-           message into the text box.
+        1. Collect context DataFrames from pre-fetched meta-look data in ``self.data``.
+           Each entry in ``integration.contexts`` is a ``meta_name`` string that maps
+           directly to a key in ``self.data`` (populated by the regular Looker query
+           pipeline when the corresponding meta-look shape was fetched).
+        2. Call the Gemini API with the formatted context, current text, and prompt.
+        3. Replace the shape's text while preserving its formatting.
+        4. On error: populate the error message into the text box and draw a red
+           outline around the shape.
         """
         if not self.gemini_shapes:
             return
@@ -471,25 +473,25 @@ class Cli:
                 continue
 
             try:
-                # Gather context data
+                # Gather context data from meta-look results already in self.data
                 context_parts: list[str] = []
-                for idx, ctx_ref in enumerate(gemini_shape.integration.contexts):
-                    ctx_key = f"gemini_ctx_{gemini_shape.shape_id}_{idx}"
-                    ctx_result = self.data.get(ctx_key)
+                for meta_name in gemini_shape.integration.contexts:
+                    ctx_result = self.data.get(meta_name)
                     if ctx_result is None:
                         logging.warning(
-                            f"No data for Gemini context Look {ctx_ref.id} "
-                            f"(shape {gemini_shape.shape_id}); skipping context."
+                            f"No data found for Gemini context '{meta_name}' "
+                            f"(shape {gemini_shape.shape_id}). Make sure a meta-look "
+                            f"shape with meta_name: {meta_name} exists in the presentation."
                         )
                         continue
                     try:
                         ctx_df = self._make_df(ctx_result)
                         context_parts.append(
-                            f"Look {ctx_ref.id}:\n{self._format_context_data(ctx_df)}"
+                            f"{meta_name}:\n{self._format_context_data(ctx_df)}"
                         )
                     except Exception as e:
                         logging.warning(
-                            f"Could not format context data for Look {ctx_ref.id}: {e}"
+                            f"Could not format context data for meta-look '{meta_name}': {e}"
                         )
 
                 context_data_str = "\n\n".join(context_parts)
@@ -694,16 +696,6 @@ class Cli:
             )
             for shape in self.looker_shapes
         ]
-
-        # Add context queries for Gemini shapes
-        for gemini_shape in self.gemini_shapes:
-            for idx, ctx_ref in enumerate(gemini_shape.integration.contexts):
-                ctx_key = f"gemini_ctx_{gemini_shape.shape_id}_{idx}"
-                tasks.append(
-                    self.client._async_write_queries(
-                        ctx_key, self.args.filter, **dict(ctx_ref)
-                    )
-                )
 
         # Run all tasks concurrently and gather the results
         results = await asyncio.gather(*tasks)

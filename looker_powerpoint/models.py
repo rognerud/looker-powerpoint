@@ -144,73 +144,16 @@ class LookerShape(BaseModel):
         return data
 
 
-class GeminiContextRef(BaseModel):
-    """
-    A reference to a Looker Look used as context data for Gemini synthesis.
-    Supports a subset of LookerReference fields relevant for data retrieval.
-    """
-
-    id: str = Field(
-        ...,
-        description="The ID of the Look to use as context data for Gemini.",
-    )
-    row: Optional[int] = Field(
-        default=None,
-        description="If set, only this row (0-indexed) is passed as context.",
-    )
-    column: Optional[int] = Field(
-        default=None,
-        description="If set, only this column (0-indexed) is passed as context.",
-    )
-    label: Optional[str] = Field(
-        default=None,
-        description="If set, only the column matching this label is passed as context.",
-    )
-    filter: Optional[str] = Field(
-        default=None,
-        description="LookML field name to filter on using the --filter CLI argument.",
-    )
-    filter_overwrites: Optional[dict] = Field(
-        default=None,
-        description="A dictionary of filter overwrites to apply to the Look.",
-    )
-    result_format: str = Field(
-        default="json_bi",
-        description="The format to return the results in. Defaults to 'json_bi'.",
-    )
-    apply_formatting: bool = Field(
-        default=False,
-        description="Apply Looker-specified formatting to each result.",
-    )
-    apply_vis: bool = Field(
-        default=True,
-        description="Apply Looker visualization options to results.",
-    )
-    server_table_calcs: bool = Field(
-        default=True,
-        description="Whether to compute table calculations on the Looker server.",
-    )
-    retries: int = Field(
-        default=0,
-        description="Number of retries for the Looker API request in case of failure.",
-    )
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def convert_int(cls, value):
-        """Validation: Convert integer values to strings."""
-        if isinstance(value, int):
-            return str(value)
-        return value
-
-
 class GeminiConfig(BaseModel):
     """
     Configuration for a Gemini LLM text synthesis shape.
     Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
 
     The Gemini model receives:
-    - The data from each Look listed in ``contexts`` (formatted as readable tables).
+
+    - The data from every meta look listed in ``contexts`` (formatted as readable
+      tables).  Each entry is the ``meta_name`` of a meta-look shape defined
+      elsewhere in the same presentation.
     - The current text content of the shape.
     - The optional ``prompt`` you provide.
 
@@ -234,9 +177,14 @@ class GeminiConfig(BaseModel):
         default=None,
         description="An optional instruction/question sent to the Gemini model together with the context data.",
     )
-    contexts: List[GeminiContextRef] = Field(
+    contexts: List[str] = Field(
         default_factory=list,
-        description="List of Looker Looks to fetch and provide as context data to Gemini.",
+        description=(
+            "List of meta look names (``meta_name`` values) whose pre-fetched data "
+            "will be provided as context to Gemini.  Define the corresponding meta "
+            "look shapes in the same presentation with ``meta: true`` and a matching "
+            "``meta_name``."
+        ),
     )
     model: str = Field(
         default="gemini-2.0-flash",
