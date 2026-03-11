@@ -36,8 +36,16 @@ source = "uv-dynamic-versioning"
 dev = [
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
+    "pytest-cov>=6.0.0",
     "ruff>=0.14.1",
     "sphinx>=8.2.3",
     "sphinx-autodoc-typehints>=3.5.2",
     "autodoc-pydantic>=2.2.0"
 ]
+
+[tool.coverage.run]
+source = ["looker_powerpoint"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
