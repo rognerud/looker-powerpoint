@@ -263,6 +263,31 @@ jobs:
     - name: Run tests
       run: uv run --no-sync pytest
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        python-version: "3.12"
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Run tests with coverage
+      run: uv run --no-sync pytest --cov=looker_powerpoint --cov-report=xml --cov-report=term-missing || true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        fail_ci_if_error: false
+
   update-ai-context:
     # Run this on a single, fast Linux runner
     runs-on: ubuntu-latest
@@ -5335,6 +5360,7 @@ from looker_powerpoint.tools.pptx_text_handler import (
     copy_run_format,
     decode_marked_segments,
     encode_colored_text,
+    extract_text_and_run_meta,
     make_jinja_env,
     process_text_field,
     remove_emojis_from_string,
@@ -6053,6 +6079,45 @@ class TestAddTextWithNumberedLinks:
                 if r.hyperlink and r.hyperlink.address:
                     assert r.font.underline is True
                     assert r.font.color.rgb == RGBColor(0, 0, 255)
+
+
+# ---------------------------------------------------------------------------
+# Tests – pptx_text_handler.py  (extract_text_and_run_meta)
+# ---------------------------------------------------------------------------
+
+class TestExtractTextAndRunMeta:
+    """Tests for extract_text_and_run_meta."""
+
+    def test_single_run_returns_full_text(self):
+        """A single-paragraph, single-run text frame returns the run text."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        tf.text = "hello"
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        assert full_text == "hello"
+
+    def test_run_meta_contains_run_objects(self):
+        """run_meta entries with text include the original run object."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        tf.text = "world"
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        run_entries = [m for m in run_meta if m["run_obj"] is not None]
+        assert len(run_entries) >= 1
+        assert run_entries[0]["text"] == "world"
+
+    def test_empty_text_frame_returns_empty_string(self):
+        """An empty text frame returns an empty full_text string."""
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        tf = txBox.text_frame
+        full_text, run_meta = extract_text_and_run_meta(tf)
+        assert full_text == ""
 ````
 
 ## File: test/test.instructions.md
@@ -6485,16 +6550,24 @@ source = "uv-dynamic-versioning"
 dev = [
     "pre-commit>=4.3.0",
     "pytest>=8.4.2",
+    "pytest-cov>=6.0.0",
     "ruff>=0.14.1",
     "sphinx>=8.2.3",
     "sphinx-autodoc-typehints>=3.5.2",
     "autodoc-pydantic>=2.2.0"
 ]
+
+[tool.coverage.run]
+source = ["looker_powerpoint"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
 ````
 
 ## File: README.md
 ````markdown
-![PyPI - Version](https://img.shields.io/pypi/v/looker-powerpoint) ![PyPI - Downloads](https://img.shields.io/pypi/dd/looker-powerpoint)
+![PyPI - Version](https://img.shields.io/pypi/v/looker-powerpoint) ![PyPI - Downloads](https://img.shields.io/pypi/dd/looker-powerpoint) [![codecov](https://codecov.io/gh/rognerud/looker-powerpoint/graph/badge.svg)](https://codecov.io/gh/rognerud/looker-powerpoint)
 
 # Looker Powerpoint CLI (lppt)
 ## integrate looker looks with microsoft powerpoint presentations

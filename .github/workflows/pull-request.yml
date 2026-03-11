@@ -42,6 +42,31 @@ jobs:
     - name: Run tests
       run: uv run --no-sync pytest
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        python-version: "3.12"
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Run tests with coverage
+      run: uv run --no-sync pytest --cov=looker_powerpoint --cov-report=xml --cov-report=term-missing || true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        fail_ci_if_error: false
+
   update-ai-context:
     # Run this on a single, fast Linux runner
     runs-on: ubuntu-latest
