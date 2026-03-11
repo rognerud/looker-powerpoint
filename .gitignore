@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 ~$*
 *.pptx
+!test/pptx/*.pptx
 .DS_Store
 .env
 __pycache__/
