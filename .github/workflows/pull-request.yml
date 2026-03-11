@@ -1,10 +1,14 @@
 name: CI
+
+# Default permissions
 permissions:
   contents: read
+
 on:
   pull_request:
     branches:
       - main
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -37,3 +41,37 @@ jobs:
 
     - name: Run tests
       run: uv run --no-sync pytest
+
+  update-ai-context:
+    # Run this on a single, fast Linux runner
+    runs-on: ubuntu-latest
+    # Elevate permissions so the bot can push back to the branch
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        # Crucial: Check out the actual branch the PR is coming from!
+        ref: ${{ github.head_ref }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run Repomix to generate AI context
+      run: npx repomix --style markdown --output agent-context.md --ignore "agent-context.md,package-lock.json"
+
+    - name: Commit and push changes
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add agent-context.md
+
+        # Only commit if there are changes
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "chore: update agent-context.md [skip ci]"
+          git push
+        fi
