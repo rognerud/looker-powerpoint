@@ -23,6 +23,16 @@ Tests should use stored fixtures for any looker data, and should not make live A
 Test pptx files with with approprate yml metadata in the alt text should be used to test the parsing and data extraction functionality of the CLI tool.
 Any generated pptx files, should have a corresponding markdown file in the test directory that accurately describes the content of the pptx file, with regards to yml metadata and expected data extraction results.
 
+## Directory Map
+
+| Path | Purpose |
+|------|---------|
+| `looker_powerpoint/` | Main Python package. Contains the CLI entry point, Looker SDK client, and Pydantic models. See `looker_powerpoint/README.md`. |
+| `looker_powerpoint/tools/` | Utility helpers for reading pptx alt-text, rendering Jinja2 templates in text frames, and inserting hyperlinks. See `looker_powerpoint/tools/README.md`. |
+| `test/` | Pytest test suite. No live API calls — all tests use inline fixtures or mocks. See `test/README.md`. |
+| `docs/` | Sphinx documentation source (RST files + `conf.py`). See `docs/README.md`. |
+| `.github/` | GitHub Actions workflows and Copilot instructions (`copilot-instructions.md`). |
+
 ## Contributing
 Contributions should prioritize adding tests for any new feature or bug fix, and to ensure that the documentation is updated accordingly.
-In addition, adding markdown files for agentic workflow for directories, and updating this file with a updated mapping of directories and their purpose is also a good contribution.
+In addition, each directory contains a `README.md` that describes its contents and conventions; keep these up to date when adding new files or modules.
