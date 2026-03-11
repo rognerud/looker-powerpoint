@@ -4,6 +4,7 @@ import looker_sdk
 from dotenv import load_dotenv, find_dotenv
 from looker_sdk import models40 as models
 from tenacity import retry, stop_after_attempt, wait_fixed, before_sleep_log
+import json
 
 
 class LookerClient:
@@ -154,6 +155,23 @@ class LookerClient:
                 return await self.run_query(query_object["query"])
 
             result = await run_query_with_retry()
+
+            if result and result_format in ["json", "json_bi"]:
+                try:
+                    parsed = json.loads(result)
+                    if isinstance(parsed, dict):
+                        # Pack the sorts and pivots into the payload
+                        parsed["custom_sorts"] = list(q.sorts) if q.sorts else []
+                        parsed["custom_pivots"] = list(q.pivots) if q.pivots else []
+                        result = json.dumps(parsed)
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    logging.warning(
+                        "Failed to inject custom_sorts/custom_pivots for shape_id %s, look_id %s: %s",
+                        shape_id,
+                        id,
+                        e,
+                        exc_info=True,
+                    )
 
         except looker_sdk.error.SDKError as e:
             logging.error(f"Error retrieving Look with ID {id} : {e}")
