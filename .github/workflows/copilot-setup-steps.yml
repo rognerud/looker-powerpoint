@@ -1,0 +1,19 @@
+name: "Setup Python with uv"
+description: "Installs uv, sets up the Python environment, and runs uv sync"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true # Speeds up subsequent runs
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install
+      shell: bash
+
+    - name: Sync Dependencies
+      run: uv sync --frozen
+      shell: bash
