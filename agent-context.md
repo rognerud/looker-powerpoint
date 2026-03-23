@@ -1048,6 +1048,51 @@ You can also hard-code static filter overrides that always apply:
      orders.status: "complete"
      orders.region: "EMEA"
 
+``filter_overwrites`` supports complex filter values and multi-value filters:
+
+**Multi-value filters (list syntax)**
+
+Use a YAML list to filter on multiple values at once.  The list is automatically
+joined as a comma-separated string, which Looker interprets as an *is any of*
+expression:
+
+.. code-block:: yaml
+
+   id: 42
+   filter_overwrites:
+     orders.status:
+       - complete
+       - pending
+       - shipped
+
+This is equivalent to writing ``orders.status: "complete,pending,shipped"`` and
+produces the Looker filter expression *status is complete, pending, or shipped*.
+
+**Complex Looker filter expressions**
+
+Any valid `Looker filter expression
+<https://cloud.google.com/looker/docs/reference/filter-expressions>`_ can be
+used as a value:
+
+.. code-block:: yaml
+
+   id: 42
+   filter_overwrites:
+     orders.created_date: "2024/01/01 to 2024/12/31"
+     orders.revenue: ">10000"
+     orders.customer_name: "%EMEA%"
+
+**Adding filters not in the original Look**
+
+``filter_overwrites`` can add entirely new filter dimensions — not just override
+ones already defined on the underlying Look:
+
+.. code-block:: yaml
+
+   id: 42
+   filter_overwrites:
+     orders.region: "EMEA"   # added even if the Look has no region filter
+
 
 Pattern 8 — Apply Looker formatting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
