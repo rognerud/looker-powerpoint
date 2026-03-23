@@ -80,16 +80,15 @@ class LookerClient:
             for f, v in filter_overwrites.items():
                 logging.info(f"Overwriting filter {f} with value {v}")
                 if hasattr(q, "filters"):
-                    filterable = False
-                    for _, existing_filter in enumerate(q.filters):
-                        if existing_filter == f:
-                            filterable = True
-                    if filterable:
-                        q.filters[f] = v
-                    else:
-                        logging.warning(
-                            f"Overwrite filter {f} not found in query filters. Available filters: {q.filters}"
+                    if q.filters is None:
+                        # Some Looks have no filters defined; initialise to an empty
+                        # dict so new filter keys can be added safely.
+                        q.filters = {}
+                    if f not in q.filters:
+                        logging.info(
+                            f"Filter {f} not found in existing query filters – adding it."
                         )
+                    q.filters[f] = v
 
         if filter_value is not None and filter is not None:
             logging.info(f"Applying filter {filter} with value {filter_value}")

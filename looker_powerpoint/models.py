@@ -47,7 +47,7 @@ class LookerReference(BaseModel):
     )
     filter_overwrites: dict = Field(
         default=None,
-        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. The filter values should not be enclosed in quotation marks. (unvalidated)",
+        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. List values are joined as comma-separated strings to support multi-value filters (e.g. 'complete,pending'). Non-string scalars are coerced to strings.",
     )
     result_format: str = Field(
         default="json_bi",
@@ -92,6 +92,28 @@ class LookerReference(BaseModel):
         if isinstance(value, int):
             return str(value)
         return value
+
+    @field_validator("filter_overwrites", mode="before")
+    @classmethod
+    def normalize_filter_overwrites(cls, value):
+        """Normalize filter_overwrites values for the Looker API.
+
+        - List values are joined as a comma-separated string so that YAML list
+          syntax (e.g. ``[complete, pending]``) becomes ``"complete,pending"``,
+          which Looker interprets as an *is any of* filter expression.
+        - Non-string scalars (int, float, bool) are coerced to strings.
+        """
+        if value is None:
+            return value
+        result = {}
+        for k, v in value.items():
+            if isinstance(v, list):
+                result[k] = ",".join(str(item) for item in v)
+            elif not isinstance(v, str):
+                result[k] = str(v)
+            else:
+                result[k] = v
+        return result
 
 
 class LookerShape(BaseModel):

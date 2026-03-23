@@ -5,13 +5,16 @@ Exercises the end-to-end flow:
 """
 
 import argparse
+import asyncio
 import json
 import os
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pptx import Presentation
 
 from looker_powerpoint.cli import Cli
+from looker_powerpoint.looker import LookerClient
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -36,7 +39,9 @@ def _json_bi(dimensions, measures, table_calculations, rows):
                 "fields": {
                     "dimensions": [_field(d) for d in dimensions],
                     "measures": [_field(m) for m in measures],
-                    "table_calculations": [_field(t) for t in (table_calculations or [])],
+                    "table_calculations": [
+                        _field(t) for t in (table_calculations or [])
+                    ],
                 }
             },
             "rows": rows,
@@ -130,3 +135,107 @@ class TestIntegration:
         assert table.cell(2, 1).text == "pending"
         assert table.cell(2, 2).text == "200"
         assert table.cell(2, 3).text == "10"
+
+
+# ── make_query unit tests ─────────────────────────────────────────────────────
+
+
+def _make_mock_look(existing_filters=None):
+    """Build a minimal mock Look whose .query.filters matches *existing_filters*."""
+    query = SimpleNamespace(
+        model="my_model",
+        view="my_view",
+        fields=["orders.status", "orders.count"],
+        pivots=None,
+        fill_fields=None,
+        filters=existing_filters if existing_filters is not None else {},
+        sorts=None,
+        limit="500",
+        column_limit=None,
+        total=None,
+        row_total=None,
+        subtotals=None,
+        dynamic_fields=None,
+        query_timezone=None,
+        vis_config=None,
+        visible_ui_sections=None,
+    )
+    look = SimpleNamespace(query=query)
+    return look
+
+
+class TestMakeQueryFilterOverwrites:
+    """Unit tests for the filter_overwrites behaviour inside LookerClient.make_query."""
+
+    def _run(self, coro):
+        """Run a coroutine synchronously."""
+        return asyncio.run(coro)
+
+    def _make_client_with_look(self, look):
+        """Return a LookerClient whose underlying SDK is fully mocked."""
+        with patch("looker_powerpoint.looker.looker_sdk"):
+            client = LookerClient.__new__(LookerClient)
+            sdk_mock = MagicMock()
+            sdk_mock.look.return_value = look
+            # run_inline_query returns minimal JSON so result parsing doesn't fail
+            sdk_mock.run_inline_query.return_value = json.dumps({"rows": []})
+            client.client = sdk_mock
+            return client
+
+    def test_filter_overwrites_overwrites_existing_filter(self):
+        """filter_overwrites replaces an existing filter value."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        result = self._run(
+            client.make_query(
+                shape_id="s1",
+                id=1,
+                filter_overwrites={"orders.status": "complete"},
+            )
+        )
+        # Result dict maps shape_id to the query result (non-None means query succeeded)
+        assert "s1" in result
+        assert result["s1"] is not None
+        assert look.query.filters["orders.status"] == "complete"
+
+    def test_filter_overwrites_adds_new_filter_key(self):
+        """filter_overwrites can add a filter that was not in the original query."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s2",
+                id=1,
+                filter_overwrites={"orders.region": "EMEA"},
+            )
+        )
+        assert look.query.filters["orders.region"] == "EMEA"
+        # Existing filter is untouched
+        assert look.query.filters["orders.status"] == "pending"
+
+    def test_filter_overwrites_handles_none_filters_dict(self):
+        """filter_overwrites works even when the query has no filters (None)."""
+        look = _make_mock_look(None)
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s3",
+                id=1,
+                filter_overwrites={"orders.status": "complete"},
+            )
+        )
+        assert look.query.filters["orders.status"] == "complete"
+
+    def test_filter_overwrites_comma_separated_value_applied(self):
+        """Comma-separated multi-value strings (from list normalization) are applied correctly."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s4",
+                id=1,
+                # Value is already normalised to a CSV string by the model validator
+                filter_overwrites={"orders.status": "complete,pending,shipped"},
+            )
+        )
+        assert look.query.filters["orders.status"] == "complete,pending,shipped"

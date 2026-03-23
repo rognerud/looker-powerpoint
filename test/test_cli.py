@@ -923,6 +923,40 @@ class TestLookerReferenceConfigurationPatterns:
             "orders.region": "EMEA",
         }
 
+    def test_filter_overwrites_list_values_joined_as_csv(self):
+        """List values in filter_overwrites are joined as comma-separated strings."""
+        ref = LookerReference(
+            id=42,
+            filter_overwrites={"orders.status": ["complete", "pending", "shipped"]},
+        )
+        assert ref.filter_overwrites == {"orders.status": "complete,pending,shipped"}
+
+    def test_filter_overwrites_integer_value_coerced_to_string(self):
+        """Integer filter values are coerced to strings."""
+        ref = LookerReference(id=42, filter_overwrites={"orders.count": 5})
+        assert ref.filter_overwrites == {"orders.count": "5"}
+
+    def test_filter_overwrites_float_value_coerced_to_string(self):
+        """Float filter values are coerced to strings."""
+        ref = LookerReference(id=42, filter_overwrites={"orders.revenue": 99.9})
+        assert ref.filter_overwrites == {"orders.revenue": "99.9"}
+
+    def test_filter_overwrites_mixed_values(self):
+        """filter_overwrites handles a mix of string, list, and integer values."""
+        ref = LookerReference(
+            id=42,
+            filter_overwrites={
+                "orders.status": ["complete", "pending"],
+                "orders.region": "EMEA",
+                "orders.count": 10,
+            },
+        )
+        assert ref.filter_overwrites == {
+            "orders.status": "complete,pending",
+            "orders.region": "EMEA",
+            "orders.count": "10",
+        }
+
     def test_pattern_retries(self):
         """Pattern 9 – retry on transient Looker API failures."""
         ref = LookerReference(id=42, retries=3)
