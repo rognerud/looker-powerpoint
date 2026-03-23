@@ -2878,16 +2878,15 @@ class LookerClient:
             for f, v in filter_overwrites.items():
                 logging.info(f"Overwriting filter {f} with value {v}")
                 if hasattr(q, "filters"):
-                    filterable = False
-                    for _, existing_filter in enumerate(q.filters):
-                        if existing_filter == f:
-                            filterable = True
-                    if filterable:
-                        q.filters[f] = v
-                    else:
-                        logging.warning(
-                            f"Overwrite filter {f} not found in query filters. Available filters: {q.filters}"
+                    if q.filters is None:
+                        # Some Looks have no filters defined; initialise to an empty
+                        # dict so new filter keys can be added safely.
+                        q.filters = {}
+                    if f not in q.filters:
+                        logging.info(
+                            f"Filter {f} not found in existing query filters – adding it."
                         )
+                    q.filters[f] = v
 
         if filter_value is not None and filter is not None:
             logging.info(f"Applying filter {filter} with value {filter_value}")
@@ -3044,7 +3043,7 @@ class LookerReference(BaseModel):
     )
     filter_overwrites: dict = Field(
         default=None,
-        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. The filter values should not be enclosed in quotation marks. (unvalidated)",
+        description="A dictionary of filter overwrites to apply to the Look. The keys are the filter lookml.field_names, and the values are the filter values. List values are joined as comma-separated strings to support multi-value filters (e.g. 'complete,pending'). Non-string scalars are coerced to strings.",
     )
     result_format: str = Field(
         default="json_bi",
@@ -3089,6 +3088,28 @@ class LookerReference(BaseModel):
         if isinstance(value, int):
             return str(value)
         return value
+
+    @field_validator("filter_overwrites", mode="before")
+    @classmethod
+    def normalize_filter_overwrites(cls, value):
+        """Normalize filter_overwrites values for the Looker API.
+
+        - List values are joined as a comma-separated string so that YAML list
+          syntax (e.g. ``[complete, pending]``) becomes ``"complete,pending"``,
+          which Looker interprets as an *is any of* filter expression.
+        - Non-string scalars (int, float, bool) are coerced to strings.
+        """
+        if value is None:
+            return value
+        result = {}
+        for k, v in value.items():
+            if isinstance(v, list):
+                result[k] = ",".join(str(item) for item in v)
+            elif not isinstance(v, str):
+                result[k] = str(v)
+            else:
+                result[k] = v
+        return result
 
 
 class LookerShape(BaseModel):
@@ -4111,6 +4132,40 @@ class TestLookerReferenceConfigurationPatterns:
             "orders.region": "EMEA",
         }
 
+    def test_filter_overwrites_list_values_joined_as_csv(self):
+        """List values in filter_overwrites are joined as comma-separated strings."""
+        ref = LookerReference(
+            id=42,
+            filter_overwrites={"orders.status": ["complete", "pending", "shipped"]},
+        )
+        assert ref.filter_overwrites == {"orders.status": "complete,pending,shipped"}
+
+    def test_filter_overwrites_integer_value_coerced_to_string(self):
+        """Integer filter values are coerced to strings."""
+        ref = LookerReference(id=42, filter_overwrites={"orders.count": 5})
+        assert ref.filter_overwrites == {"orders.count": "5"}
+
+    def test_filter_overwrites_float_value_coerced_to_string(self):
+        """Float filter values are coerced to strings."""
+        ref = LookerReference(id=42, filter_overwrites={"orders.revenue": 99.9})
+        assert ref.filter_overwrites == {"orders.revenue": "99.9"}
+
+    def test_filter_overwrites_mixed_values(self):
+        """filter_overwrites handles a mix of string, list, and integer values."""
+        ref = LookerReference(
+            id=42,
+            filter_overwrites={
+                "orders.status": ["complete", "pending"],
+                "orders.region": "EMEA",
+                "orders.count": 10,
+            },
+        )
+        assert ref.filter_overwrites == {
+            "orders.status": "complete,pending",
+            "orders.region": "EMEA",
+            "orders.count": "10",
+        }
+
     def test_pattern_retries(self):
         """Pattern 9 – retry on transient Looker API failures."""
         ref = LookerReference(id=42, retries=3)
@@ -4151,13 +4206,16 @@ Exercises the end-to-end flow:
 """
 
 import argparse
+import asyncio
 import json
 import os
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pptx import Presentation
 
 from looker_powerpoint.cli import Cli
+from looker_powerpoint.looker import LookerClient
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -4182,7 +4240,9 @@ def _json_bi(dimensions, measures, table_calculations, rows):
                 "fields": {
                     "dimensions": [_field(d) for d in dimensions],
                     "measures": [_field(m) for m in measures],
-                    "table_calculations": [_field(t) for t in (table_calculations or [])],
+                    "table_calculations": [
+                        _field(t) for t in (table_calculations or [])
+                    ],
                 }
             },
             "rows": rows,
@@ -4276,6 +4336,110 @@ class TestIntegration:
         assert table.cell(2, 1).text == "pending"
         assert table.cell(2, 2).text == "200"
         assert table.cell(2, 3).text == "10"
+
+
+# ── make_query unit tests ─────────────────────────────────────────────────────
+
+
+def _make_mock_look(existing_filters=None):
+    """Build a minimal mock Look whose .query.filters matches *existing_filters*."""
+    query = SimpleNamespace(
+        model="my_model",
+        view="my_view",
+        fields=["orders.status", "orders.count"],
+        pivots=None,
+        fill_fields=None,
+        filters=existing_filters if existing_filters is not None else {},
+        sorts=None,
+        limit="500",
+        column_limit=None,
+        total=None,
+        row_total=None,
+        subtotals=None,
+        dynamic_fields=None,
+        query_timezone=None,
+        vis_config=None,
+        visible_ui_sections=None,
+    )
+    look = SimpleNamespace(query=query)
+    return look
+
+
+class TestMakeQueryFilterOverwrites:
+    """Unit tests for the filter_overwrites behaviour inside LookerClient.make_query."""
+
+    def _run(self, coro):
+        """Run a coroutine synchronously."""
+        return asyncio.run(coro)
+
+    def _make_client_with_look(self, look):
+        """Return a LookerClient whose underlying SDK is fully mocked."""
+        with patch("looker_powerpoint.looker.looker_sdk"):
+            client = LookerClient.__new__(LookerClient)
+            sdk_mock = MagicMock()
+            sdk_mock.look.return_value = look
+            # run_inline_query returns minimal JSON so result parsing doesn't fail
+            sdk_mock.run_inline_query.return_value = json.dumps({"rows": []})
+            client.client = sdk_mock
+            return client
+
+    def test_filter_overwrites_overwrites_existing_filter(self):
+        """filter_overwrites replaces an existing filter value."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        result = self._run(
+            client.make_query(
+                shape_id="s1",
+                id=1,
+                filter_overwrites={"orders.status": "complete"},
+            )
+        )
+        # Result dict maps shape_id to the query result (non-None means query succeeded)
+        assert "s1" in result
+        assert result["s1"] is not None
+        assert look.query.filters["orders.status"] == "complete"
+
+    def test_filter_overwrites_adds_new_filter_key(self):
+        """filter_overwrites can add a filter that was not in the original query."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s2",
+                id=1,
+                filter_overwrites={"orders.region": "EMEA"},
+            )
+        )
+        assert look.query.filters["orders.region"] == "EMEA"
+        # Existing filter is untouched
+        assert look.query.filters["orders.status"] == "pending"
+
+    def test_filter_overwrites_handles_none_filters_dict(self):
+        """filter_overwrites works even when the query has no filters (None)."""
+        look = _make_mock_look(None)
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s3",
+                id=1,
+                filter_overwrites={"orders.status": "complete"},
+            )
+        )
+        assert look.query.filters["orders.status"] == "complete"
+
+    def test_filter_overwrites_comma_separated_value_applied(self):
+        """Comma-separated multi-value strings (from list normalization) are applied correctly."""
+        look = _make_mock_look({"orders.status": "pending"})
+        client = self._make_client_with_look(look)
+        self._run(
+            client.make_query(
+                shape_id="s4",
+                id=1,
+                # Value is already normalised to a CSV string by the model validator
+                filter_overwrites={"orders.status": "complete,pending,shipped"},
+            )
+        )
+        assert look.query.filters["orders.status"] == "complete,pending,shipped"
 ````
 
 ## File: test/test_pptx.py
