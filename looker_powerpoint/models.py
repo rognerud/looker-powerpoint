@@ -1,4 +1,5 @@
 import logging
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
@@ -141,3 +142,90 @@ class LookerShape(BaseModel):
                     data["integration"]["apply_formatting"] = True
 
         return data
+
+
+class GeminiConfig(BaseModel):
+    """
+    Configuration for a Gemini LLM text synthesis shape.
+    Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
+
+    The Gemini model receives an assembled context built from the ordered
+    ``contexts`` list, then produces replacement text for the shape.
+
+    Each entry in ``contexts`` is resolved by type:
+
+    * ``"self"`` — the shape's own current text (before synthesis).
+    * ``"slide_self"`` — text of all other shapes on the same slide after Looker
+      data has been rendered (i.e. the slide this comment will appear on).
+    * Any string starting with ``gemini_`` — the synthesized output of another
+      Gemini text box whose ``gemini_id`` matches.  Those boxes are automatically
+      processed first.
+    * Anything else — treated as the ``meta_name`` of a Looker meta-look shape;
+      its pre-fetched data is formatted as a readable table.
+
+    .. note::
+       Requires the ``google-genai`` package.  Install it with::
+
+           pip install looker_powerpoint[llm]
+
+       The ``GOOGLE_API_KEY`` (or ``GEMINI_API_KEY``) environment variable must also
+       be set.
+    """
+
+    type: str = Field(
+        default="gemini",
+        description="Must be 'gemini' to identify this as a Gemini synthesis config.",
+    )
+    gemini_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "A unique identifier for this Gemini shape within the presentation. "
+            "The ``gemini_`` prefix is added automatically if omitted. "
+            "Required if another Gemini shape references this box via its contexts list."
+        ),
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="An optional instruction/question sent to the Gemini model together with the context data.",
+    )
+    contexts: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Ordered list of context references for this Gemini shape. Each entry "
+            "is one of: ``'self'``, ``'slide_self'``, a ``gemini_<id>`` string "
+            "referencing another Gemini box, or a Looker meta-look ``meta_name``."
+        ),
+    )
+    model: str = Field(
+        default="gemini-2.0-flash",
+        description="The Gemini model name to use for synthesis.",
+    )
+
+    @field_validator("type")
+    @classmethod
+    def type_must_be_gemini(cls, v):
+        if v != "gemini":
+            raise ValueError("type must be 'gemini' for GeminiConfig")
+        return v
+
+    @field_validator("gemini_id", mode="before")
+    @classmethod
+    def ensure_gemini_prefix(cls, v):
+        """Auto-add the ``gemini_`` prefix when the user omits it."""
+        if v is not None and not str(v).startswith("gemini_"):
+            return f"gemini_{v}"
+        return v
+
+
+class GeminiShape(BaseModel):
+    """
+    A Pydantic model for a PowerPoint text-box shape configured for Gemini LLM synthesis.
+    """
+
+    shape_id: str
+    shape_type: str
+    slide_number: int
+    shape_width: Optional[int] = Field(default=None)
+    shape_height: Optional[int] = Field(default=None)
+    integration: GeminiConfig
+    shape_number: Optional[int] = Field(default=None)
