@@ -51,7 +51,8 @@ def extract_alt_text(shape):
         shape: A Shape object from pptx.
 
     Returns:
-        str: The alternative text description, or None if not found.
+        The YAML-parsed value (typically a dict) from the shape's alternative
+        text, or None if no ``descr`` attribute is present or the text is empty.
     """
     xml_str = shape.element.xml  # get XML string of the shape element
     xml_elem = etree.fromstring(xml_str)  # parse it into an lxml element
