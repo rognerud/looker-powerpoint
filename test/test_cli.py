@@ -12,7 +12,7 @@ def test_default_output_dir():
     """Test that the default output directory is 'output'."""
     with patch("os.getenv", return_value="dummy_value"):
         cli = Cli()
-        args = cli.parser.parse_args()
+        args = cli.parser.parse_args([])
         assert args.output_dir == "output"
 
 
@@ -27,7 +27,14 @@ def _field(name):
     return {"name": name, "field_group_variant": name.split(".")[-1]}
 
 
-def _make_result(dimensions, measures, table_calculations, rows, custom_sorts=None, custom_pivots=None):
+def _make_result(
+    dimensions,
+    measures,
+    table_calculations,
+    rows,
+    custom_sorts=None,
+    custom_pivots=None,
+):
     """Build a json_bi-style result string for _make_df.
 
     Each entry in *dimensions*, *measures*, and *table_calculations* may be either a
@@ -35,21 +42,24 @@ def _make_result(dimensions, measures, table_calculations, rows, custom_sorts=No
     Plain strings are automatically expanded with a ``field_group_variant`` equal to
     the portion of the name after the last dot (e.g. ``"view.date"`` → ``"date"``).
     """
+
     def _normalise(fields):
         return [_field(f) if isinstance(f, str) else f for f in fields]
 
-    return json.dumps({
-        "metadata": {
-            "fields": {
-                "dimensions": _normalise(dimensions),
-                "measures": _normalise(measures),
-                "table_calculations": _normalise(table_calculations or []),
-            }
-        },
-        "rows": rows,
-        "custom_sorts": custom_sorts or [],
-        "custom_pivots": custom_pivots or [],
-    })
+    return json.dumps(
+        {
+            "metadata": {
+                "fields": {
+                    "dimensions": _normalise(dimensions),
+                    "measures": _normalise(measures),
+                    "table_calculations": _normalise(table_calculations or []),
+                }
+            },
+            "rows": rows,
+            "custom_sorts": custom_sorts or [],
+            "custom_pivots": custom_pivots or [],
+        }
+    )
 
 
 class TestMakeDf:
@@ -83,7 +93,9 @@ class TestMakeDf:
         # Calc last
         calc_position = cols.index("calc1")
         assert max(dim_positions) < min(measure_positions), "Dims must precede measures"
-        assert max(measure_positions) < calc_position, "Measures must precede table calcs"
+        assert max(measure_positions) < calc_position, (
+            "Measures must precede table calcs"
+        )
 
     def test_no_pivots_preserves_native_dimension_order(self):
         """Dimension order follows the metadata field order, not data column order."""
@@ -229,6 +241,7 @@ class TestMakeDf:
 # Parser default / flag tests
 # ---------------------------------------------------------------------------
 
+
 class TestParser:
     """Tests for Cli._init_argparser argument defaults and flag overrides."""
 
@@ -369,6 +382,7 @@ class TestParser:
 # _test_str_to_int tests
 # ---------------------------------------------------------------------------
 
+
 class TestStrToInt:
     """Tests for Cli._test_str_to_int helper."""
 
@@ -397,6 +411,7 @@ class TestStrToInt:
 # ---------------------------------------------------------------------------
 # _select_slice_from_df tests
 # ---------------------------------------------------------------------------
+
 
 def _make_ref(**kwargs):
     """Build a LookerReference with sensible defaults."""
@@ -460,6 +475,7 @@ class TestSelectSliceFromDf:
 # ---------------------------------------------------------------------------
 # _fill_table tests
 # ---------------------------------------------------------------------------
+
 
 def _make_table(rows, cols):
     """Create a python-pptx table with the given dimensions."""
@@ -544,6 +560,7 @@ class TestFillTable:
 # ---------------------------------------------------------------------------
 # Additional _make_df edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestMakeDfEdgeCases:
     """Extra edge-case tests for Cli._make_df."""
@@ -706,6 +723,7 @@ class TestMakeDfEdgeCases:
 # LookerReference model validation tests
 # ---------------------------------------------------------------------------
 
+
 class TestLookerReferenceModel:
     """Tests for LookerReference Pydantic model."""
 
@@ -776,6 +794,7 @@ class TestLookerReferenceModel:
 # LookerShape model validation tests
 # ---------------------------------------------------------------------------
 
+
 class TestLookerShapeModel:
     """Tests for LookerShape Pydantic model validator."""
 
@@ -833,7 +852,9 @@ class TestLookerShapeModel:
     def test_chart_shape_apply_formatting_not_overridden(self):
         """CHART shapes don't have apply_formatting forced to True."""
         shape = LookerShape.model_validate(self._base_data("CHART"))
-        assert shape.integration.apply_formatting is False  # default from LookerReference
+        assert (
+            shape.integration.apply_formatting is False
+        )  # default from LookerReference
 
     def test_shape_id_stored(self):
         shape = LookerShape.model_validate(self._base_data("TEXT_BOX"))
@@ -875,7 +896,9 @@ class TestLookerReferenceConfigurationPatterns:
 
     def test_pattern_image_explicit_dimensions(self):
         """Pattern 4 variant – explicit pixel dimensions for image rendering."""
-        ref = LookerReference(id=42, result_format="png", image_width=1200, image_height=675)
+        ref = LookerReference(
+            id=42, result_format="png", image_width=1200, image_height=675
+        )
         assert ref.image_width == 1200
         assert ref.image_height == 675
 
@@ -895,7 +918,10 @@ class TestLookerReferenceConfigurationPatterns:
             id=42,
             filter_overwrites={"orders.status": "complete", "orders.region": "EMEA"},
         )
-        assert ref.filter_overwrites == {"orders.status": "complete", "orders.region": "EMEA"}
+        assert ref.filter_overwrites == {
+            "orders.status": "complete",
+            "orders.region": "EMEA",
+        }
 
     def test_pattern_retries(self):
         """Pattern 9 – retry on transient Looker API failures."""
@@ -913,3 +939,16 @@ class TestLookerReferenceConfigurationPatterns:
         ref = LookerReference(id="99")
         assert ref.id == "99"
 
+    def test_pattern_meta_look_config(self):
+        """Pattern: configuring a meta look with id_type, meta flag, and iteration."""
+        ref = LookerReference(
+            id="5",
+            id_type="meta",
+            meta=True,
+            meta_iterate=True,
+            meta_name="my_meta",
+        )
+        assert ref.id_type == "meta"
+        assert ref.meta is True
+        assert ref.meta_iterate is True
+        assert ref.meta_name == "my_meta"
