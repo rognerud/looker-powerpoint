@@ -2089,6 +2089,7 @@ except importlib.metadata.PackageNotFoundError:
 ## File: looker_powerpoint/cli.py
 ````python
 from asyncio import subprocess
+import collections
 import datetime
 import requests
 import io
@@ -2646,10 +2647,12 @@ class Cli:
                     dependents[id(dep)].append(gs)
                     in_degree[id(gs)] += 1
 
-        queue = [gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0]
+        queue: collections.deque = collections.deque(
+            gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0
+        )
         ordered: list = []
         while queue:
-            node = queue.pop(0)
+            node = queue.popleft()
             ordered.append(node)
             for dependent in dependents[id(node)]:
                 in_degree[id(dependent)] -= 1
@@ -2720,6 +2723,13 @@ class Cli:
                 current_text = ""
                 if hasattr(current_shape, "text_frame"):
                     current_text = current_shape.text_frame.text
+                else:
+                    logging.warning(
+                        f"Shape {gemini_shape.shape_number} on slide "
+                        f"{gemini_shape.slide_number} has no text_frame; "
+                        "skipping Gemini synthesis."
+                    )
+                    continue
 
                 # Resolve each context entry in order
                 context_parts: list[str] = []
@@ -3361,7 +3371,7 @@ This is the main Python package for the Looker PowerPoint CLI tool (`lppt`).
 | `cli.py` | Entry point for the `lppt` CLI command. Contains the `Cli` class and `main()` function. Orchestrates fetching Looker data and writing results into PowerPoint files. |
 | `looker.py` | `LookerClient` class that wraps the Looker SDK. Handles authentication, query construction, executing Look queries, and retry logic. |
 | `models.py` | Pydantic models: `LookerReference` and `LookerShape` (Looker-backed shapes); `GeminiConfig` and `GeminiShape` (Gemini LLM synthesis shapes). |
-| `gemini.py` | Optional Google Gemini integration. Wraps `google-generativeai`; provides `is_available()` and `synthesize()`. Safe to import when the extra is not installed. |
+| `gemini.py` | Optional Google Gemini integration. Wraps the `google-genai` SDK (import path `google.genai`); provides `is_available()` and `synthesize()`. Safe to import when the extra is not installed. |
 | `__init__.py` | Package initialiser; exposes `__version__` via `importlib.metadata`. |
 | `tools/` | Sub-package of utility helpers (see `tools/README.md`). |
 
