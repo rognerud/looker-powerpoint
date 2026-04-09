@@ -1373,6 +1373,44 @@ import yaml
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
+# Mapping of "smart" / non-ASCII quote variants to their ASCII equivalents.
+_QUOTE_REPLACEMENTS = {
+    # Double-quote variants → straight double quote
+    "\u201c": '"',  # LEFT DOUBLE QUOTATION MARK  "
+    "\u201d": '"',  # RIGHT DOUBLE QUOTATION MARK "
+    "\u201e": '"',  # DOUBLE LOW-9 QUOTATION MARK „
+    "\u2033": '"',  # DOUBLE PRIME               ″
+    "\u00ab": '"',  # LEFT-POINTING DOUBLE ANGLE  «
+    "\u00bb": '"',  # RIGHT-POINTING DOUBLE ANGLE »
+    # Single-quote / apostrophe variants → straight single quote
+    "\u2018": "'",  # LEFT SINGLE QUOTATION MARK  '
+    "\u2019": "'",  # RIGHT SINGLE QUOTATION MARK '
+    "\u201a": "'",  # SINGLE LOW-9 QUOTATION MARK ‚
+    "\u2032": "'",  # PRIME                       ′
+    "\u0060": "'",  # GRAVE ACCENT                `
+    "\u00b4": "'",  # ACUTE ACCENT                ´
+}
+
+# Build a translation table once for efficient single-pass replacement.
+_QUOTE_TABLE = str.maketrans(_QUOTE_REPLACEMENTS)
+
+
+def cleanse_alt_text(text: str) -> str:
+    """Normalise alternative-text before YAML parsing.
+
+    Replaces typographic / "smart" quote characters with their plain ASCII
+    equivalents so that YAML produced by applications that substitute curly
+    quotes (e.g. macOS, Word, PowerPoint) can still be parsed correctly.
+
+    Args:
+        text: Raw alternative-text string extracted from a shape.
+
+    Returns:
+        The cleansed string with all known fancy quote variants replaced by
+        straight ASCII quotes.
+    """
+    return text.translate(_QUOTE_TABLE)
+
 
 def extract_alt_text(shape):
     """
@@ -1396,7 +1434,7 @@ def extract_alt_text(shape):
             descr = cNvPr_elements[0].get("descr")
             if descr:
                 data = yaml.safe_load(
-                    descr  # .lower()
+                    cleanse_alt_text(descr)
                 )  # Use safe_load for untrusted sources
 
                 return data
@@ -4300,6 +4338,7 @@ import pytest
 from pptx import Presentation
 
 from looker_powerpoint.tools.find_alt_text import (
+    cleanse_alt_text,
     extract_alt_text,
     get_presentation_objects_with_descriptions,
 )
@@ -4462,6 +4501,80 @@ class TestExtractAltText:
         """An invalid file path to get_presentation_objects_with_descriptions returns []."""
         result = get_presentation_objects_with_descriptions("/nonexistent/path.pptx")
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# TestCleanseAltText — unit tests for cleanse_alt_text
+# ---------------------------------------------------------------------------
+
+
+class TestCleanseAltText:
+    """Tests for the cleanse_alt_text helper that normalises typographic quotes."""
+
+    def test_left_double_quotation_mark(self):
+        assert cleanse_alt_text("\u201cvalue\u201d") == '"value"'
+
+    def test_right_double_quotation_mark(self):
+        assert cleanse_alt_text("key: \u201cval\u201d") == 'key: "val"'
+
+    def test_double_low9_quotation_mark(self):
+        assert cleanse_alt_text("\u201eval\u201d") == '"val"'
+
+    def test_left_single_quotation_mark(self):
+        assert cleanse_alt_text("\u2018hello\u2019") == "'hello'"
+
+    def test_right_single_quotation_mark(self):
+        assert cleanse_alt_text("it\u2019s") == "it's"
+
+    def test_single_low9_quotation_mark(self):
+        assert cleanse_alt_text("\u201atest\u2019") == "'test'"
+
+    def test_prime_replaced_with_apostrophe(self):
+        assert cleanse_alt_text("O\u2032clock") == "O'clock"
+
+    def test_grave_accent_replaced(self):
+        assert cleanse_alt_text("\u0060key\u0060") == "'key'"
+
+    def test_acute_accent_replaced(self):
+        assert cleanse_alt_text("\u00b4key\u00b4") == "'key'"
+
+    def test_angle_double_quotes_replaced(self):
+        assert cleanse_alt_text("\u00abvalue\u00bb") == '"value"'
+
+    def test_plain_text_unchanged(self):
+        assert cleanse_alt_text("id: 42") == "id: 42"
+
+    def test_mixed_fancy_and_plain_quotes(self):
+        result = cleanse_alt_text("id: \u201c42\u201d\nlabel: \u2018foo\u2019")
+        assert result == "id: \"42\"\nlabel: 'foo'"
+
+    def test_yaml_with_smart_quotes_parses_correctly(self):
+        """Smart-quote YAML should parse to the same dict as plain-quote YAML."""
+        import yaml
+
+        fancy = "id: \u201c42\u201d"
+        plain = 'id: "42"'
+        assert yaml.safe_load(cleanse_alt_text(fancy)) == yaml.safe_load(plain)
+
+    def test_extract_alt_text_with_smart_quotes(self):
+        """extract_alt_text tolerates smart-quote YAML embedded in a shape."""
+        from lxml import etree
+
+        # Build a minimal shape XML that uses curly quotes around the id value
+        xml_str = (
+            '<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+            ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            "<p:nvSpPr>"
+            '<p:cNvPr id="1" name="TextBox 1" descr="id: \u201c99\u201d"/>'
+            "</p:nvSpPr>"
+            "</p:sp>"
+        )
+        fake_shape = SimpleNamespace(element=SimpleNamespace(xml=xml_str))
+        result = extract_alt_text(fake_shape)
+        assert result == {"id": "99"}
+
+    def test_empty_string_unchanged(self):
+        assert cleanse_alt_text("") == ""
 ````
 
 ## File: test/test_tools.py
