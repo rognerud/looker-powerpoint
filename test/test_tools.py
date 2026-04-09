@@ -43,9 +43,7 @@ from looker_powerpoint.tools.url_to_hyperlink import add_text_with_numbered_link
 # Helpers
 # ---------------------------------------------------------------------------
 
-EXISTING_TABLE_PPTX = os.path.join(
-    os.path.dirname(__file__), "pptx", "table7x7.pptx"
-)
+EXISTING_TABLE_PPTX = os.path.join(os.path.dirname(__file__), "pptx", "table7x7.pptx")
 
 
 def _make_text_box_pptx(text: str) -> Presentation:
@@ -75,7 +73,9 @@ def _pptx_with_alt_text(yaml_text: str, shape_kind: str = "table") -> Presentati
         from pptx.util import Inches
 
         rows, cols = 2, 2
-        tbl = slide.shapes.add_table(rows, cols, Inches(1), Inches(1), Inches(4), Inches(2))
+        tbl = slide.shapes.add_table(
+            rows, cols, Inches(1), Inches(1), Inches(4), Inches(2)
+        )
         shape = tbl
     else:
         txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
@@ -173,8 +173,15 @@ class TestGetPresentationObjectsWithDescriptions:
     def test_shape_keys_present(self):
         result = get_presentation_objects_with_descriptions(EXISTING_TABLE_PPTX)
         obj = result[0]
-        for key in ("shape_id", "shape_type", "shape_width", "shape_height",
-                    "integration", "slide_number", "shape_number"):
+        for key in (
+            "shape_id",
+            "shape_type",
+            "shape_width",
+            "shape_height",
+            "integration",
+            "slide_number",
+            "shape_number",
+        ):
             assert key in obj, f"Missing key: {key}"
 
     def test_slide_number_is_zero_based(self):
@@ -340,7 +347,9 @@ class TestColorEncoding:
         assert segments[2] == (" after", None)
 
     def test_multiple_encoded_segments(self):
-        t = encode_colored_text("pos", "#008000") + encode_colored_text("neg", "#C00000")
+        t = encode_colored_text("pos", "#008000") + encode_colored_text(
+            "neg", "#C00000"
+        )
         segments = decode_marked_segments(t)
         assert segments[0] == ("pos", "#008000")
         assert segments[1] == ("neg", "#C00000")
@@ -697,9 +706,7 @@ class TestAddTextWithNumberedLinks:
 
     def test_multiple_urls_incrementing_numbers(self):
         tf = _make_text_frame()
-        add_text_with_numbered_links(
-            tf, "A https://a.com B https://b.com C"
-        )
+        add_text_with_numbered_links(tf, "A https://a.com B https://b.com C")
         all_text = "".join(r.text for p in tf.paragraphs for r in p.runs)
         assert "(1)" in all_text
         assert "(2)" in all_text
@@ -751,6 +758,7 @@ class TestAddTextWithNumberedLinks:
 # ---------------------------------------------------------------------------
 # Tests – pptx_text_handler.py  (extract_text_and_run_meta)
 # ---------------------------------------------------------------------------
+
 
 class TestExtractTextAndRunMeta:
     """Tests for extract_text_and_run_meta."""
