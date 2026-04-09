@@ -1420,7 +1420,8 @@ def extract_alt_text(shape):
         shape: A Shape object from pptx.
 
     Returns:
-        str: The alternative text description, or None if not found.
+        The YAML-parsed value (typically a dict) from the shape's alternative
+        text, or None if no ``descr`` attribute is present or the text is empty.
     """
     xml_str = shape.element.xml  # get XML string of the shape element
     xml_elem = etree.fromstring(xml_str)  # parse it into an lxml element
@@ -4532,6 +4533,9 @@ class TestCleanseAltText:
     def test_prime_replaced_with_apostrophe(self):
         assert cleanse_alt_text("O\u2032clock") == "O'clock"
 
+    def test_double_prime_replaced_with_double_quote(self):
+        assert cleanse_alt_text("value\u2033") == 'value"'
+
     def test_grave_accent_replaced(self):
         assert cleanse_alt_text("\u0060key\u0060") == "'key'"
 
@@ -4558,8 +4562,6 @@ class TestCleanseAltText:
 
     def test_extract_alt_text_with_smart_quotes(self):
         """extract_alt_text tolerates smart-quote YAML embedded in a shape."""
-        from lxml import etree
-
         # Build a minimal shape XML that uses curly quotes around the id value
         xml_str = (
             '<p:sp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
