@@ -73,7 +73,6 @@ looker_powerpoint/
   __init__.py
   cli.py
   looker_powerpoint.instructions.md
-  looker_v2.py
   looker.py
   models.py
 test/
@@ -82,7 +81,6 @@ test/
     table7x7.pptx
   test_cli.py
   test_integration.py
-  test_looker_v2.py
   test_looker.py
   test_pptx.py
   test_tools.py
@@ -2797,23 +2795,20 @@ uv run lppt --help
 ```
 ````
 
-## File: looker_powerpoint/looker_v2.py
+## File: looker_powerpoint/looker.py
 ````python
-"""Refactored Looker client (v2).
+"""Looker SDK wrapper.
 
-``LookerClientV2`` is a functionally equivalent replacement for
-``LookerClient`` (``looker.py``) that has been restructured to make every
-code path independently unit-testable.
+``LookerClient`` wraps the Looker SDK and exposes async helpers for
+fetching and executing Looker Looks from a PowerPoint pipeline.
 
-Key differences from ``LookerClient``:
+The class is structured so that every code path can be independently
+unit-tested:
 - SDK initialization is delegated to ``_initialize_client()`` so it can be
   patched without reconstructing the whole object.
 - Filter application, query building, and result post-processing are each
   extracted into focused static / instance methods.
-- The ``filterable`` loop in the original ``make_query`` has been replaced
-  with a direct ``in`` membership test (equivalent behaviour, no risk of an
-  ``UnboundLocalError`` when the attribute is missing).
-- The nested ``@retry`` closure is wrapped in ``_run_query_with_retry()`` so
+- The nested retry closure is wrapped in ``_run_query_with_retry()`` so
   retry behaviour is testable on its own.
 """
 
@@ -2833,8 +2828,8 @@ from tenacity import (
 )
 
 
-class LookerClientV2:
-    """Looker SDK wrapper – refactored for full unit-test coverage."""
+class LookerClient:
+    """Looker SDK wrapper with full unit-test coverage."""
 
     # ------------------------------------------------------------------
     # Construction
@@ -3084,210 +3079,11 @@ class LookerClientV2:
         filter_value=None,
         **kwargs,
     ):
-        """Thin public wrapper around ``make_query`` used by the CLI."""
+        """Thin private wrapper around ``make_query`` used by the CLI."""
         return await self.make_query(
             shape_id,
             filter_value=filter_value,
             **dict(kwargs),
-        )
-````
-
-## File: looker_powerpoint/looker.py
-````python
-import logging
-from typing import Optional
-import looker_sdk
-from dotenv import load_dotenv, find_dotenv
-from looker_sdk import models40 as models
-from tenacity import retry, stop_after_attempt, wait_fixed, before_sleep_log
-import json
-
-
-class LookerClient:
-    def __init__(self):
-        load_dotenv(find_dotenv(usecwd=True))
-        try:
-            self.client = looker_sdk.init40()  # or init40() for the v4.0 API
-        except looker_sdk.error.SDKError as e:
-            logging.error(
-                f"Error initializing Looker SDK: {e} Consider adding a looker.ini file, or setting the LOOKERSDK_BASE_URL, LOOKERSDK_CLIENT_ID, and LOOKERSDK_CLIENT_SECRET environment variables."
-            )
-            exit(1)
-
-    async def run_query(self, query_object):
-        """
-        Runs a query against the Looker API.
-
-        Args:
-            query_object: The query object containing the necessary parameters.
-        """
-
-        response = self.client.run_inline_query(
-            result_format=query_object["result_format"],
-            body=query_object["body"],
-            apply_vis=query_object["apply_vis"],
-            apply_formatting=query_object["apply_formatting"],
-            server_table_calcs=query_object["server_table_calcs"],
-        )
-
-        return response
-
-    async def make_query(
-        self,
-        shape_id: int,
-        filter: Optional[str] = None,
-        filter_value: Optional[str] = None,
-        filter_overwrites: Optional[dict] = None,
-        id: Optional[int] = None,
-        **kwargs,
-    ) -> models.WriteQuery:
-        """
-        Constructs a WriteQuery object based on a Look's definition and provided parameters.
-        Args:
-            id: The ID of the Look.
-            filter: The name of the filter to apply.
-            filter_value: The value to set for the filter.
-            filter_overwrites: A dictionary of filters to overwrite with new values.
-            **kwargs: Additional query parameters to set.
-        Returns:
-            A WriteQuery object representing the modified query.
-        """
-        try:
-            # check if string can be converted to int
-            look = self.client.look(id)
-        except Exception as e:
-            logging.error(
-                f"Error fetching Look with ID {id}, is this a valid Look ID? If it is a meta reference, remember to set id_type: 'meta'"
-            )
-            return {shape_id: None}
-
-        q = look.query
-        for parameter, value in kwargs.items():
-            if value is not None:
-                if hasattr(q, parameter):
-                    # If the parameter is a list, append the value
-                    if isinstance(getattr(q, parameter), list):
-                        getattr(q, parameter).append(value)
-                    else:
-                        # Otherwise, set the value directly
-                        setattr(q, parameter, value)
-
-        if filter_overwrites is not None:
-            for f, v in filter_overwrites.items():
-                logging.info(f"Overwriting filter {f} with value {v}")
-                if hasattr(q, "filters"):
-                    filterable = False
-                    for _, existing_filter in enumerate(q.filters):
-                        if existing_filter == f:
-                            filterable = True
-                    if filterable:
-                        q.filters[f] = v
-                    else:
-                        logging.warning(
-                            f"Overwrite filter {f} not found in query filters. Available filters: {q.filters}"
-                        )
-
-        if filter_value is not None and filter is not None:
-            logging.info(f"Applying filter {filter} with value {filter_value}")
-            # If filter_value is provided, set the filter
-            if hasattr(q, "filters"):
-                filterable = False
-                for _, f in enumerate(q.filters):
-                    # print(f, filter)
-                    if f == filter:
-                        filterable = True
-            if filterable:
-                q.filters[filter] = filter_value
-            else:
-                logging.warning(
-                    f"Filter {filter} not found in query filters. Available filters: {q.filters}"
-                )
-
-        body = models.WriteQuery(
-            model=q.model,
-            view=q.view,
-            fields=q.fields,
-            pivots=q.pivots,
-            fill_fields=q.fill_fields,
-            filters=q.filters,
-            sorts=q.sorts,
-            limit=q.limit,
-            column_limit=q.column_limit,
-            total=q.total,
-            row_total=q.row_total,
-            subtotals=q.subtotals,
-            dynamic_fields=q.dynamic_fields,
-            query_timezone=q.query_timezone,
-            vis_config=q.vis_config,
-            visible_ui_sections=q.visible_ui_sections,
-        )
-
-        result_format = kwargs.get("result_format", "json_bi")
-        apply_vis = kwargs.get("apply_vis", False)
-        apply_formatting = kwargs.get("apply_formatting", False)
-        server_table_calcs = kwargs.get("server_table_calcs", False)
-        retries = kwargs.get("retries", 0)
-
-        query_object = {
-            "shape_id": shape_id,
-            "query": {
-                "result_format": result_format,
-                "body": body,
-                "apply_vis": apply_vis,
-                "apply_formatting": apply_formatting,
-                "server_table_calcs": server_table_calcs,
-            },
-        }
-
-        try:
-
-            @retry(
-                stop=stop_after_attempt(retries + 1),
-                wait=wait_fixed(2),
-                before_sleep=before_sleep_log(logging.getLogger(), logging.WARNING),
-                reraise=True,
-            )
-            async def run_query_with_retry():
-                return await self.run_query(query_object["query"])
-
-            result = await run_query_with_retry()
-
-            if result and result_format in ["json", "json_bi"]:
-                try:
-                    parsed = json.loads(result)
-                    if isinstance(parsed, dict):
-                        # Pack the sorts and pivots into the payload
-                        parsed["custom_sorts"] = list(q.sorts) if q.sorts else []
-                        parsed["custom_pivots"] = list(q.pivots) if q.pivots else []
-                        result = json.dumps(parsed)
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    logging.warning(
-                        "Failed to inject custom_sorts/custom_pivots for shape_id %s, look_id %s: %s",
-                        shape_id,
-                        id,
-                        e,
-                        exc_info=True,
-                    )
-
-        except looker_sdk.error.SDKError as e:
-            logging.error(f"Error retrieving Look with ID {id} : {e}")
-            result = None
-        except Exception as e:
-            logging.error(f"Unexpected error retrieving Look with ID {id} : {e}")
-            result = None
-
-        return {shape_id: result}
-
-    async def _async_write_queries(self, shape_id, filter_value=None, **kwargs):
-        """
-        Asynchronously write a Looker query by its ID.
-        Args:
-            table: A dictionary containing the look_id and other parameters.
-        Returns:
-            The fetched look data.
-        """
-        return await self.make_query(
-            shape_id, filter_value=filter_value, **dict(kwargs)
         )
 ````
 
@@ -4480,7 +4276,9 @@ def _json_bi(dimensions, measures, table_calculations, rows):
                 "fields": {
                     "dimensions": [_field(d) for d in dimensions],
                     "measures": [_field(m) for m in measures],
-                    "table_calculations": [_field(t) for t in (table_calculations or [])],
+                    "table_calculations": [
+                        _field(t) for t in (table_calculations or [])
+                    ],
                 }
             },
             "rows": rows,
@@ -4576,48 +4374,49 @@ class TestIntegration:
         assert table.cell(2, 3).text == "10"
 ````
 
-## File: test/test_looker_v2.py
+## File: test/test_looker.py
 ````python
-"""Unit tests for looker_powerpoint.looker_v2 (LookerClientV2).
+"""Unit tests for looker_powerpoint.looker (LookerClient).
 
-This suite both:
-  1. Replicates the behavioral tests from ``test_looker.py`` (proving
-     functional equivalence with the original ``LookerClient``), and
-  2. Adds focused unit tests for each extracted helper method, achieving
-     100 % line and branch coverage on ``looker_v2.py``.
+This suite provides:
+  1. Focused unit tests for each extracted static/instance helper method,
+     achieving 100% line coverage on every code path.
+  2. End-to-end behavioural tests for ``make_query`` and
+     ``_async_write_queries`` that exercise the full async pipeline.
 
 All tests are fully isolated – no live Looker API calls are made.
+The Looker SDK is mocked at the module level so that LookerClient can be
+instantiated without any environment variables or network access.
 """
 
 import asyncio
 import json
 import logging
-import sys
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import looker_sdk
 from looker_sdk import models40 as models
 
-from looker_powerpoint.looker_v2 import LookerClientV2
+from looker_powerpoint.looker import LookerClient
 
 
 # ---------------------------------------------------------------------------
-# Helpers (mirrors test_looker.py helpers for equivalence testing)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_client() -> LookerClientV2:
-    """Return a LookerClientV2 with the Looker SDK fully mocked out."""
+def _make_client() -> LookerClient:
+    """Return a LookerClient with the Looker SDK fully mocked out."""
     with (
-        patch("looker_powerpoint.looker_v2.load_dotenv"),
-        patch("looker_powerpoint.looker_v2.find_dotenv", return_value=""),
-        patch("looker_powerpoint.looker_v2.looker_sdk.init40") as mock_init,
+        patch("looker_powerpoint.looker.load_dotenv"),
+        patch("looker_powerpoint.looker.find_dotenv", return_value=""),
+        patch("looker_powerpoint.looker.looker_sdk.init40") as mock_init,
     ):
         mock_sdk = MagicMock()
         mock_init.return_value = mock_sdk
-        client = LookerClientV2()
+        client = LookerClient()
     return client
 
 
@@ -4654,35 +4453,33 @@ class TestInit:
     def test_init_success(self):
         """Happy path: SDK initialises without error."""
         with (
-            patch("looker_powerpoint.looker_v2.load_dotenv"),
-            patch("looker_powerpoint.looker_v2.find_dotenv", return_value=""),
-            patch("looker_powerpoint.looker_v2.looker_sdk.init40") as mock_init,
+            patch("looker_powerpoint.looker.load_dotenv"),
+            patch("looker_powerpoint.looker.find_dotenv", return_value=""),
+            patch("looker_powerpoint.looker.looker_sdk.init40") as mock_init,
         ):
             mock_sdk = MagicMock()
             mock_init.return_value = mock_sdk
-            client = LookerClientV2()
+            client = LookerClient()
         assert client.client is mock_sdk
 
     def test_init_sdk_error_exits(self):
         """SDKError during init should call sys.exit(1) → SystemExit."""
         with (
-            patch("looker_powerpoint.looker_v2.load_dotenv"),
-            patch("looker_powerpoint.looker_v2.find_dotenv", return_value=""),
+            patch("looker_powerpoint.looker.load_dotenv"),
+            patch("looker_powerpoint.looker.find_dotenv", return_value=""),
             patch(
-                "looker_powerpoint.looker_v2.looker_sdk.init40",
+                "looker_powerpoint.looker.looker_sdk.init40",
                 side_effect=looker_sdk.error.SDKError("bad"),
             ),
         ):
             with pytest.raises(SystemExit):
-                LookerClientV2()
+                LookerClient()
 
     def test_initialize_client_sets_client(self):
         """_initialize_client() can be called on an already-constructed instance."""
         client = _make_client()
         new_sdk = MagicMock()
-        with patch(
-            "looker_powerpoint.looker_v2.looker_sdk.init40", return_value=new_sdk
-        ):
+        with patch("looker_powerpoint.looker.looker_sdk.init40", return_value=new_sdk):
             client._initialize_client()
         assert client.client is new_sdk
 
@@ -4690,7 +4487,7 @@ class TestInit:
         """_initialize_client() calls sys.exit on SDKError."""
         client = _make_client()
         with patch(
-            "looker_powerpoint.looker_v2.looker_sdk.init40",
+            "looker_powerpoint.looker.looker_sdk.init40",
             side_effect=looker_sdk.error.SDKError("fail"),
         ):
             with pytest.raises(SystemExit):
@@ -4707,28 +4504,27 @@ class TestApplyKwargsToQuery:
         """A scalar attribute is replaced when value is not None."""
         q = MagicMock()
         q.limit = "100"
-        LookerClientV2._apply_kwargs_to_query(q, {"limit": "500"})
+        LookerClient._apply_kwargs_to_query(q, {"limit": "500"})
         assert q.limit == "500"
 
     def test_appends_to_list_attribute(self):
         """When the existing attribute is a list, the value is appended."""
         q = MagicMock()
         q.sorts = ["field1"]
-        LookerClientV2._apply_kwargs_to_query(q, {"sorts": "field2"})
+        LookerClient._apply_kwargs_to_query(q, {"sorts": "field2"})
         assert "field2" in q.sorts
 
     def test_ignores_none_value(self):
         """kwargs with value None are skipped."""
         q = MagicMock()
         q.limit = "100"
-        LookerClientV2._apply_kwargs_to_query(q, {"limit": None})
+        LookerClient._apply_kwargs_to_query(q, {"limit": None})
         assert q.limit == "100"
 
     def test_ignores_unknown_attribute(self):
         """kwargs for attributes that don't exist on q are silently ignored."""
         q = MagicMock(spec=[])  # no attributes
-        # Should not raise
-        LookerClientV2._apply_kwargs_to_query(q, {"nonexistent": "value"})
+        LookerClient._apply_kwargs_to_query(q, {"nonexistent": "value"})
 
 
 # ---------------------------------------------------------------------------
@@ -4741,7 +4537,7 @@ class TestApplyFilterOverwrites:
         """An existing filter key is updated."""
         q = MagicMock()
         q.filters = {"date": "7 days", "status": "all"}
-        LookerClientV2._apply_filter_overwrites(q, {"date": "30 days"})
+        LookerClient._apply_filter_overwrites(q, {"date": "30 days"})
         assert q.filters["date"] == "30 days"
 
     def test_unknown_filter_warns(self, caplog):
@@ -4749,21 +4545,19 @@ class TestApplyFilterOverwrites:
         q = MagicMock()
         q.filters = {"date": "7 days"}
         with caplog.at_level(logging.WARNING):
-            LookerClientV2._apply_filter_overwrites(q, {"unknown": "value"})
+            LookerClient._apply_filter_overwrites(q, {"unknown": "value"})
         assert any("not found" in r.message.lower() for r in caplog.records)
 
     def test_no_filters_attribute_noop(self):
-        """If q has no 'filters', the method returns immediately without error."""
+        """If q has no 'filters' attribute, the method returns without error."""
         q = MagicMock(spec=[])  # no attributes
-        # Should not raise
-        LookerClientV2._apply_filter_overwrites(q, {"date": "30 days"})
+        LookerClient._apply_filter_overwrites(q, {"date": "30 days"})
 
     def test_filters_is_none_noop(self):
-        """If q.filters is None, the method returns immediately without error."""
+        """If q.filters is None, the method returns without error."""
         q = MagicMock()
         q.filters = None
-        # Should not raise
-        LookerClientV2._apply_filter_overwrites(q, {"date": "30 days"})
+        LookerClient._apply_filter_overwrites(q, {"date": "30 days"})
 
 
 # ---------------------------------------------------------------------------
@@ -4776,7 +4570,7 @@ class TestApplySingleFilter:
         """A filter key that exists in q.filters is updated."""
         q = MagicMock()
         q.filters = {"date": "7 days"}
-        LookerClientV2._apply_single_filter(q, "date", "90 days")
+        LookerClient._apply_single_filter(q, "date", "90 days")
         assert q.filters["date"] == "90 days"
 
     def test_unknown_filter_warns(self, caplog):
@@ -4784,22 +4578,22 @@ class TestApplySingleFilter:
         q = MagicMock()
         q.filters = {"date": "7 days"}
         with caplog.at_level(logging.WARNING):
-            LookerClientV2._apply_single_filter(q, "nonexistent", "value")
+            LookerClient._apply_single_filter(q, "nonexistent", "value")
         assert any("not found" in r.message.lower() for r in caplog.records)
 
     def test_no_filters_attribute_warns(self, caplog):
         """If q has no 'filters' attribute, a warning is logged."""
         q = MagicMock(spec=[])  # no attributes
         with caplog.at_level(logging.WARNING):
-            LookerClientV2._apply_single_filter(q, "date", "90 days")
-        assert caplog.records  # at least one warning logged
+            LookerClient._apply_single_filter(q, "date", "90 days")
+        assert caplog.records
 
     def test_filters_is_none_warns(self, caplog):
         """If q.filters is None, a warning is logged."""
         q = MagicMock()
         q.filters = None
         with caplog.at_level(logging.WARNING):
-            LookerClientV2._apply_single_filter(q, "date", "90 days")
+            LookerClient._apply_single_filter(q, "date", "90 days")
         assert caplog.records
 
 
@@ -4829,7 +4623,7 @@ class TestBuildWriteQuery:
         q.vis_config = None
         q.visible_ui_sections = None
 
-        wq = LookerClientV2._build_write_query(q)
+        wq = LookerClient._build_write_query(q)
         assert isinstance(wq, models.WriteQuery)
         assert wq.model == "m"
         assert wq.view == "v"
@@ -4852,43 +4646,41 @@ class TestPostProcessResult:
         """custom_sorts and custom_pivots are added to a dict JSON result."""
         q = self._q(sorts=["field1"], pivots=["dim1"])
         raw = json.dumps({"metadata": {}, "rows": []})
-        result = LookerClientV2._post_process_result(raw, "json_bi", q, 1, 42)
+        result = LookerClient._post_process_result(raw, "json_bi", q, 1, 42)
         payload = json.loads(result)
         assert payload["custom_sorts"] == ["field1"]
         assert payload["custom_pivots"] == ["dim1"]
 
     def test_json_format_also_injected(self):
-        """'json' format (not just 'json_bi') also receives injection."""
+        """'json' format also receives injection."""
         q = self._q(sorts=["s1"])
         raw = json.dumps({"rows": []})
-        result = LookerClientV2._post_process_result(raw, "json", q, 1, 42)
+        result = LookerClient._post_process_result(raw, "json", q, 1, 42)
         assert "custom_sorts" in json.loads(result)
 
     def test_non_json_format_returned_unchanged(self):
         """PNG / CSV formats are returned as-is."""
         q = self._q()
-        result = LookerClientV2._post_process_result(b"\x89PNG", "png", q, 1, 42)
+        result = LookerClient._post_process_result(b"\x89PNG", "png", q, 1, 42)
         assert result == b"\x89PNG"
 
     def test_none_result_returned_as_none(self):
         """A None result is returned unchanged."""
         q = self._q()
-        assert LookerClientV2._post_process_result(None, "json_bi", q, 1, 42) is None
+        assert LookerClient._post_process_result(None, "json_bi", q, 1, 42) is None
 
     def test_list_result_not_injected(self):
         """If the JSON value is a list (not a dict), result is returned unchanged."""
         q = self._q()
         raw = json.dumps([{"row": 1}])
-        result = LookerClientV2._post_process_result(raw, "json_bi", q, 1, 42)
+        result = LookerClient._post_process_result(raw, "json_bi", q, 1, 42)
         assert result == raw
 
     def test_invalid_json_logs_warning_returns_raw(self, caplog):
         """Invalid JSON logs a warning and returns the original string."""
         q = self._q()
         with caplog.at_level(logging.WARNING):
-            result = LookerClientV2._post_process_result(
-                "not-json", "json_bi", q, 1, 42
-            )
+            result = LookerClient._post_process_result("not-json", "json_bi", q, 1, 42)
         assert result == "not-json"
         assert caplog.records
 
@@ -4896,7 +4688,7 @@ class TestPostProcessResult:
         """When q.sorts / q.pivots is None, the injected lists are empty."""
         q = self._q(sorts=None, pivots=None)
         raw = json.dumps({"rows": []})
-        result = LookerClientV2._post_process_result(raw, "json_bi", q, 1, 42)
+        result = LookerClient._post_process_result(raw, "json_bi", q, 1, 42)
         payload = json.loads(result)
         assert payload["custom_sorts"] == []
         assert payload["custom_pivots"] == []
@@ -4909,7 +4701,7 @@ class TestPostProcessResult:
 
 class TestRunQuery:
     def test_delegates_to_sdk(self):
-        """run_query calls run_inline_query with the correct parameters."""
+        """run_query passes all fields from the query_object to run_inline_query."""
         client = _make_client()
         mock_body = MagicMock()
         client.client.run_inline_query.return_value = '{"rows":[]}'
@@ -4955,8 +4747,7 @@ class TestRunQueryWithRetry:
     def test_calls_run_query(self):
         """_run_query_with_retry invokes run_query once when no failure."""
         client = _make_client()
-        expected = '{"rows":[]}'
-        client.client.run_inline_query.return_value = expected
+        client.client.run_inline_query.return_value = '{"rows":[]}'
 
         query_obj = {
             "result_format": "json_bi",
@@ -4966,7 +4757,7 @@ class TestRunQueryWithRetry:
             "server_table_calcs": False,
         }
         result = asyncio.run(client._run_query_with_retry(query_obj, retries=0))
-        assert result == expected
+        assert result == '{"rows":[]}'
 
     def test_reraises_on_failure(self):
         """With retries=0, a failing run_query propagates the exception."""
@@ -4985,7 +4776,7 @@ class TestRunQueryWithRetry:
 
 
 # ---------------------------------------------------------------------------
-# make_query – behavioural equivalence with LookerClient
+# make_query
 # ---------------------------------------------------------------------------
 
 
@@ -5200,453 +4991,6 @@ class TestAsyncWriteQueries:
 
     def test_filter_value_propagated(self):
         """filter_value kwarg is propagated all the way to the query."""
-        client = _make_client()
-        mock_look = _make_mock_look(filters={"date": "7 days"})
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = json.dumps({})
-
-        asyncio.run(
-            client._async_write_queries(
-                shape_id=11,
-                filter_value="90 days",
-                filter="date",
-                id=99,
-            )
-        )
-        assert mock_look.query.filters["date"] == "90 days"
-````
-
-## File: test/test_looker.py
-````python
-"""Unit tests for looker_powerpoint.looker (LookerClient).
-
-All tests are fully isolated – no live Looker API calls are made.
-The Looker SDK is mocked at the module level so that LookerClient can be
-instantiated without any environment variables or network access.
-"""
-
-import asyncio
-import json
-import logging
-import sys
-
-import pytest
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import looker_sdk
-from looker_sdk import models40 as models
-
-from looker_powerpoint.looker import LookerClient
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_client() -> LookerClient:
-    """Return a LookerClient with the Looker SDK fully mocked out."""
-    with (
-        patch("looker_powerpoint.looker.load_dotenv"),
-        patch("looker_powerpoint.looker.find_dotenv", return_value=""),
-        patch("looker_powerpoint.looker.looker_sdk.init40") as mock_init,
-    ):
-        mock_sdk = MagicMock()
-        mock_init.return_value = mock_sdk
-        client = LookerClient()
-    # client.client is already set to mock_sdk
-    return client
-
-
-def _make_mock_look(filters=None, sorts=None, pivots=None):
-    """Return a mock Look object whose .query attribute has sensible defaults."""
-    mock_look = MagicMock()
-    mock_query = MagicMock()
-    mock_query.model = "test_model"
-    mock_query.view = "test_view"
-    mock_query.fields = ["field1", "field2"]
-    mock_query.pivots = pivots if pivots is not None else []
-    mock_query.fill_fields = None
-    mock_query.filters = filters if filters is not None else {"date": "7 days"}
-    mock_query.sorts = sorts if sorts is not None else ["field1"]
-    mock_query.limit = "100"
-    mock_query.column_limit = None
-    mock_query.total = False
-    mock_query.row_total = None
-    mock_query.subtotals = None
-    mock_query.dynamic_fields = None
-    mock_query.query_timezone = None
-    mock_query.vis_config = None
-    mock_query.visible_ui_sections = None
-    mock_look.query = mock_query
-    return mock_look
-
-
-def _json_bi_result(rows=None, sorts=None, pivots=None):
-    """Build a minimal json_bi result string."""
-    return json.dumps(
-        {
-            "metadata": {"fields": {"dimensions": [], "measures": []}},
-            "rows": rows or [],
-            "custom_sorts": sorts or [],
-            "custom_pivots": pivots or [],
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
-# __init__
-# ---------------------------------------------------------------------------
-
-
-class TestLookerClientInit:
-    def test_init_success(self):
-        """Happy path: SDK initialises without error."""
-        with (
-            patch("looker_powerpoint.looker.load_dotenv"),
-            patch("looker_powerpoint.looker.find_dotenv", return_value=""),
-            patch("looker_powerpoint.looker.looker_sdk.init40") as mock_init,
-        ):
-            mock_sdk = MagicMock()
-            mock_init.return_value = mock_sdk
-            client = LookerClient()
-        assert client.client is mock_sdk
-
-    def test_init_sdk_error_exits(self):
-        """SDKError during init should call exit(1) → SystemExit."""
-        with (
-            patch("looker_powerpoint.looker.load_dotenv"),
-            patch("looker_powerpoint.looker.find_dotenv", return_value=""),
-            patch(
-                "looker_powerpoint.looker.looker_sdk.init40",
-                side_effect=looker_sdk.error.SDKError("bad"),
-            ),
-        ):
-            with pytest.raises(SystemExit):
-                LookerClient()
-
-
-# ---------------------------------------------------------------------------
-# run_query
-# ---------------------------------------------------------------------------
-
-
-class TestRunQuery:
-    def test_run_query_delegates_to_sdk(self):
-        """run_query passes all fields from the query_object to run_inline_query."""
-        client = _make_client()
-        mock_body = MagicMock()
-        mock_response = '{"rows":[]}'
-        client.client.run_inline_query.return_value = mock_response
-
-        query_obj = {
-            "result_format": "json_bi",
-            "body": mock_body,
-            "apply_vis": True,
-            "apply_formatting": True,
-            "server_table_calcs": True,
-        }
-        result = asyncio.run(client.run_query(query_obj))
-
-        assert result == mock_response
-        client.client.run_inline_query.assert_called_once_with(
-            result_format="json_bi",
-            body=mock_body,
-            apply_vis=True,
-            apply_formatting=True,
-            server_table_calcs=True,
-        )
-
-    def test_run_query_returns_sdk_response(self):
-        """run_query returns exactly what the SDK returns."""
-        client = _make_client()
-        client.client.run_inline_query.return_value = "some bytes"
-        query_obj = {
-            "result_format": "png",
-            "body": MagicMock(),
-            "apply_vis": False,
-            "apply_formatting": False,
-            "server_table_calcs": False,
-        }
-        result = asyncio.run(client.run_query(query_obj))
-        assert result == "some bytes"
-
-
-# ---------------------------------------------------------------------------
-# make_query
-# ---------------------------------------------------------------------------
-
-
-class TestMakeQuery:
-    def test_look_fetch_fails_returns_none(self):
-        """If client.look() raises, make_query returns {shape_id: None}."""
-        client = _make_client()
-        client.client.look.side_effect = Exception("not found")
-
-        result = asyncio.run(client.make_query(shape_id=1, id=999))
-        assert result == {1: None}
-
-    def test_basic_query_no_filters(self):
-        """Happy path: no filter args, result is returned with injected sorts/pivots."""
-        client = _make_client()
-        mock_look = _make_mock_look(
-            filters={"date": "7 days"}, sorts=["field1"], pivots=[]
-        )
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        result = asyncio.run(client.make_query(shape_id=1, id=42))
-        assert 1 in result
-        payload = json.loads(result[1])
-        assert payload["custom_sorts"] == ["field1"]
-        assert payload["custom_pivots"] == []
-
-    def test_result_format_not_json_skips_injection(self):
-        """Non-json/json_bi formats are returned as-is (no sort/pivot injection)."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = b"\x89PNG..."
-
-        result = asyncio.run(client.make_query(shape_id=2, id=42, result_format="png"))
-        assert result[2] == b"\x89PNG..."
-
-    def test_json_result_is_list_not_injected(self):
-        """If the JSON result is a list (not a dict), sorts/pivots are not injected."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        raw = json.dumps([{"row": 1}])
-        client.client.run_inline_query.return_value = raw
-
-        result = asyncio.run(client.make_query(shape_id=3, id=42))
-        assert result[3] == raw
-
-    def test_filter_overwrite_applies_existing_filter(self):
-        """filter_overwrites replaces an existing filter value."""
-        client = _make_client()
-        mock_look = _make_mock_look(filters={"date": "7 days", "status": "all"})
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        asyncio.run(
-            client.make_query(
-                shape_id=1,
-                id=42,
-                filter_overwrites={"date": "30 days"},
-            )
-        )
-        assert mock_look.query.filters["date"] == "30 days"
-
-    def test_filter_overwrite_unknown_filter_warns(self, caplog):
-        """filter_overwrites with an unknown key logs a warning."""
-        client = _make_client()
-        mock_look = _make_mock_look(filters={"date": "7 days"})
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = json.dumps({})
-
-        with caplog.at_level(logging.WARNING):
-            asyncio.run(
-                client.make_query(
-                    shape_id=1,
-                    id=42,
-                    filter_overwrites={"unknown_filter": "value"},
-                )
-            )
-        assert any("not found" in r.message.lower() for r in caplog.records)
-
-    def test_single_filter_applies_to_existing_key(self):
-        """filter + filter_value sets the matching filter."""
-        client = _make_client()
-        mock_look = _make_mock_look(filters={"date": "7 days"})
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        asyncio.run(
-            client.make_query(
-                shape_id=1,
-                id=42,
-                filter="date",
-                filter_value="90 days",
-            )
-        )
-        assert mock_look.query.filters["date"] == "90 days"
-
-    def test_single_filter_unknown_key_warns(self, caplog):
-        """filter + filter_value with an unknown filter key logs a warning."""
-        client = _make_client()
-        mock_look = _make_mock_look(filters={"date": "7 days"})
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = json.dumps({})
-
-        with caplog.at_level(logging.WARNING):
-            asyncio.run(
-                client.make_query(
-                    shape_id=1,
-                    id=42,
-                    filter="nonexistent",
-                    filter_value="value",
-                )
-            )
-        assert any("not found" in r.message.lower() for r in caplog.records)
-
-    def test_sdk_error_during_run_returns_none(self, caplog):
-        """SDKError while running the query returns {shape_id: None}."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.side_effect = looker_sdk.error.SDKError("boom")
-
-        with caplog.at_level(logging.ERROR):
-            result = asyncio.run(client.make_query(shape_id=5, id=42))
-        assert result == {5: None}
-
-    def test_unexpected_error_during_run_returns_none(self, caplog):
-        """Unexpected exceptions while running the query return {shape_id: None}."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.side_effect = RuntimeError("unexpected")
-
-        with caplog.at_level(logging.ERROR):
-            result = asyncio.run(client.make_query(shape_id=6, id=42))
-        assert result == {6: None}
-
-    def test_result_none_returned_as_none(self):
-        """If run_inline_query returns None the result dict maps shape_id to None."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = None
-
-        result = asyncio.run(client.make_query(shape_id=7, id=42))
-        assert result == {7: None}
-
-    def test_json_decode_error_returns_raw(self, caplog):
-        """If json.loads fails on the result, the raw value is returned unchanged."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        # Return invalid JSON so json.loads raises JSONDecodeError
-        client.client.run_inline_query.return_value = "not-valid-json"
-
-        with caplog.at_level(logging.WARNING):
-            result = asyncio.run(client.make_query(shape_id=8, id=42))
-        # The raw string should be returned without raising
-        assert result[8] == "not-valid-json"
-
-    def test_kwargs_applied_to_query(self):
-        """Extra kwargs that match query attributes are applied to the query object."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        asyncio.run(
-            client.make_query(
-                shape_id=1,
-                id=42,
-                limit="500",
-            )
-        )
-        # limit is a plain string attribute, so setattr should have been called
-        assert mock_look.query.limit == "500"
-
-    def test_list_attribute_appended_not_overwritten(self):
-        """When the existing attribute is a list, the kwarg value is appended."""
-        client = _make_client()
-        mock_look = _make_mock_look(sorts=["field1"])
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        asyncio.run(
-            client.make_query(
-                shape_id=1,
-                id=42,
-                sorts="field2",
-            )
-        )
-        assert "field2" in mock_look.query.sorts
-
-    def test_apply_vis_and_formatting_flags_passed(self):
-        """apply_vis, apply_formatting, server_table_calcs kwargs are forwarded to run_inline_query."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        client.client.run_inline_query.return_value = json.dumps({})
-
-        asyncio.run(
-            client.make_query(
-                shape_id=1,
-                id=42,
-                apply_vis=True,
-                apply_formatting=True,
-                server_table_calcs=True,
-            )
-        )
-        _, call_kwargs = client.client.run_inline_query.call_args
-        assert call_kwargs["apply_vis"] is True
-        assert call_kwargs["apply_formatting"] is True
-        assert call_kwargs["server_table_calcs"] is True
-
-    def test_pivots_injected_into_json_result(self):
-        """custom_pivots is populated from the query's pivots field."""
-        client = _make_client()
-        mock_look = _make_mock_look(pivots=["dim1", "dim2"])
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        result = asyncio.run(client.make_query(shape_id=1, id=42))
-        payload = json.loads(result[1])
-        assert payload["custom_pivots"] == ["dim1", "dim2"]
-
-    def test_none_sorts_yields_empty_list(self):
-        """When q.sorts is None, custom_sorts is an empty list."""
-        client = _make_client()
-        mock_look = _make_mock_look(sorts=None, pivots=None)
-        mock_look.query.sorts = None
-        mock_look.query.pivots = None
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        result = asyncio.run(client.make_query(shape_id=1, id=42))
-        payload = json.loads(result[1])
-        assert payload["custom_sorts"] == []
-        assert payload["custom_pivots"] == []
-
-
-# ---------------------------------------------------------------------------
-# _async_write_queries
-# ---------------------------------------------------------------------------
-
-
-class TestAsyncWriteQueries:
-    def test_delegates_to_make_query(self):
-        """_async_write_queries is a thin wrapper around make_query."""
-        client = _make_client()
-        mock_look = _make_mock_look()
-        client.client.look.return_value = mock_look
-        raw = json.dumps({"metadata": {}, "rows": []})
-        client.client.run_inline_query.return_value = raw
-
-        result = asyncio.run(
-            client._async_write_queries(
-                shape_id=10,
-                filter_value="30 days",
-                id=99,
-            )
-        )
-        assert 10 in result
-
-    def test_filter_value_propagated(self):
-        """filter_value kwarg is propagated from _async_write_queries to make_query."""
         client = _make_client()
         mock_look = _make_mock_look(filters={"date": "7 days"})
         client.client.look.return_value = mock_look
@@ -5896,9 +5240,7 @@ from looker_powerpoint.tools.url_to_hyperlink import add_text_with_numbered_link
 # Helpers
 # ---------------------------------------------------------------------------
 
-EXISTING_TABLE_PPTX = os.path.join(
-    os.path.dirname(__file__), "pptx", "table7x7.pptx"
-)
+EXISTING_TABLE_PPTX = os.path.join(os.path.dirname(__file__), "pptx", "table7x7.pptx")
 
 
 def _make_text_box_pptx(text: str) -> Presentation:
@@ -5928,7 +5270,9 @@ def _pptx_with_alt_text(yaml_text: str, shape_kind: str = "table") -> Presentati
         from pptx.util import Inches
 
         rows, cols = 2, 2
-        tbl = slide.shapes.add_table(rows, cols, Inches(1), Inches(1), Inches(4), Inches(2))
+        tbl = slide.shapes.add_table(
+            rows, cols, Inches(1), Inches(1), Inches(4), Inches(2)
+        )
         shape = tbl
     else:
         txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
@@ -6026,8 +5370,15 @@ class TestGetPresentationObjectsWithDescriptions:
     def test_shape_keys_present(self):
         result = get_presentation_objects_with_descriptions(EXISTING_TABLE_PPTX)
         obj = result[0]
-        for key in ("shape_id", "shape_type", "shape_width", "shape_height",
-                    "integration", "slide_number", "shape_number"):
+        for key in (
+            "shape_id",
+            "shape_type",
+            "shape_width",
+            "shape_height",
+            "integration",
+            "slide_number",
+            "shape_number",
+        ):
             assert key in obj, f"Missing key: {key}"
 
     def test_slide_number_is_zero_based(self):
@@ -6193,7 +5544,9 @@ class TestColorEncoding:
         assert segments[2] == (" after", None)
 
     def test_multiple_encoded_segments(self):
-        t = encode_colored_text("pos", "#008000") + encode_colored_text("neg", "#C00000")
+        t = encode_colored_text("pos", "#008000") + encode_colored_text(
+            "neg", "#C00000"
+        )
         segments = decode_marked_segments(t)
         assert segments[0] == ("pos", "#008000")
         assert segments[1] == ("neg", "#C00000")
@@ -6550,9 +5903,7 @@ class TestAddTextWithNumberedLinks:
 
     def test_multiple_urls_incrementing_numbers(self):
         tf = _make_text_frame()
-        add_text_with_numbered_links(
-            tf, "A https://a.com B https://b.com C"
-        )
+        add_text_with_numbered_links(tf, "A https://a.com B https://b.com C")
         all_text = "".join(r.text for p in tf.paragraphs for r in p.runs)
         assert "(1)" in all_text
         assert "(2)" in all_text
@@ -6604,6 +5955,7 @@ class TestAddTextWithNumberedLinks:
 # ---------------------------------------------------------------------------
 # Tests – pptx_text_handler.py  (extract_text_and_run_meta)
 # ---------------------------------------------------------------------------
+
 
 class TestExtractTextAndRunMeta:
     """Tests for extract_text_and_run_meta."""
