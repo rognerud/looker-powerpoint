@@ -1,38 +1,39 @@
-from asyncio import subprocess
+import argparse
+import asyncio
+import collections
 import datetime
-import requests
 import io
+import json
+import logging
+import os
+import re
+import subprocess
+from io import BytesIO
+
+import pandas as pd
+from lxml import etree
+from PIL import Image
+from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
+from pydantic import ValidationError
+from rich.logging import RichHandler
+from rich_argparse import RichHelpFormatter
+import requests
+
+from looker_powerpoint import gemini as gemini_module
+from looker_powerpoint.looker import LookerClient
+from looker_powerpoint.models import LookerShape, GeminiShape
 from looker_powerpoint.tools.find_alt_text import (
     get_presentation_objects_with_descriptions,
 )
-from looker_powerpoint.looker import LookerClient
-from looker_powerpoint.models import LookerShape
-
-from looker_powerpoint.tools.pptx_text_handler import process_text_field
-from pydantic import ValidationError
-import subprocess
-from pptx.util import Pt
-from pptx.chart.data import CategoryChartData
-import json
-import pandas as pd
-from pptx import Presentation
-from lxml import etree
-import re
-import argparse
-from rich_argparse import RichHelpFormatter
-import logging
-from PIL import Image
-
-from rich.logging import RichHandler
-import os
-import asyncio
-from io import BytesIO
+from looker_powerpoint.tools.pptx_text_handler import (
+    process_text_field,
+    update_text_frame_preserving_formatting,
+)
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
-
-import re
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
 
 
 class Cli:
@@ -46,6 +47,7 @@ class Cli:
         self.client = None
         self.relevant_shapes = []
         self.looker_shapes = []
+        self.gemini_shapes = []
         self.data = {}
 
         # Initialize the argument parser
@@ -415,6 +417,280 @@ class Cli:
         # Remove the shape
         slide.shapes._spTree.remove(shape_to_remove._element)
 
+    def _format_context_data(self, df) -> str:
+        """
+        Format a pandas DataFrame as a human-readable plain-text table for use
+        as Gemini context.
+
+        Args:
+            df: A pandas DataFrame.
+
+        Returns:
+            str: A plain-text representation of the DataFrame.
+        """
+        return df.to_string(index=False)
+
+    def _extract_slide_text_context(
+        self, slide_number: int, exclude_shape_id: int
+    ) -> str:
+        """
+        Return a plain-text extract of all text on a slide, excluding the target shape.
+
+        Only shapes that have a text_frame are included.  Each shape is rendered as:
+        ``[Shape name]: text content``
+
+        Args:
+            slide_number: The index of the slide.
+            exclude_shape_id: The shape_id of the shape to exclude (the Gemini shape itself).
+
+        Returns:
+            str: Multi-line text representing the slide content.
+        """
+        slide = self.presentation.slides[slide_number]
+        lines: list[str] = []
+        for shape in slide.shapes:
+            if shape.shape_id == exclude_shape_id:
+                continue
+            if hasattr(shape, "text_frame"):
+                text = shape.text_frame.text.strip()
+                if text:
+                    name = getattr(shape, "name", f"shape_{shape.shape_id}")
+                    lines.append(f"[{name}]: {text}")
+        return "\n".join(lines)
+
+    def _resolve_context_item(
+        self,
+        ctx: str,
+        shape_number: int,
+        slide_number: int,
+        gemini_results: dict,
+        current_text: str,
+    ) -> tuple | None:
+        """
+        Resolve a single ``contexts`` entry to a ``(label, content)`` pair.
+
+        Resolution rules (checked in order):
+
+        1. ``"self"`` — the shape's own current text before synthesis.
+        2. ``"slide_self"`` — text of all other shapes on the slide after Looker
+           data has been rendered, with this shape excluded.
+        3. Strings starting with ``"gemini_"`` — the output of the Gemini box
+           whose ``gemini_id`` matches.  Returns ``None`` (with a warning) if
+           that box has not been processed yet or has failed.
+        4. Anything else — treated as a Looker meta-look ``meta_name``; resolved
+           from ``self.data``.  Returns ``None`` (with a warning) if missing.
+
+        Args:
+            ctx: The context string from ``GeminiConfig.contexts``.
+            shape_number: The shape_id of the current Gemini shape (for exclusion).
+            slide_number: The slide index of the current Gemini shape.
+            gemini_results: Dict of ``{gemini_id: synthesized_text}`` for already
+                processed Gemini boxes.
+            current_text: The shape's current text content.
+
+        Returns:
+            ``(label, content)`` on success, or ``None`` if the reference cannot
+            be resolved (a warning is already logged).
+        """
+        if ctx == "self":
+            return ("Current shape text", current_text)
+
+        if ctx == "slide_self":
+            content = self._extract_slide_text_context(slide_number, shape_number)
+            return ("Current slide context (excluding this shape)", content)
+
+        if ctx.startswith("gemini_"):
+            result = gemini_results.get(ctx)
+            if result is None:
+                logging.warning(
+                    f"No result available for Gemini context '{ctx}'. "
+                    "The referenced Gemini shape may not have run yet or may have failed."
+                )
+                return None
+            return (f"LLM report [{ctx}]", result)
+
+        # Meta-look fallback
+        raw = self.data.get(ctx)
+        if raw is None:
+            logging.warning(
+                f"No data found for Gemini context '{ctx}'. "
+                "Make sure a meta-look shape with that meta_name exists in the presentation."
+            )
+            return None
+        try:
+            df = self._make_df(raw)
+            return (f"Data [{ctx}]", self._format_context_data(df))
+        except Exception as e:
+            logging.warning(f"Could not format context data for '{ctx}': {e}")
+            return None
+
+    def _sort_gemini_shapes_by_dependency(self) -> list:
+        """
+        Return ``self.gemini_shapes`` sorted in topological order.
+
+        Any ``contexts`` entry that starts with ``"gemini_"`` and matches the
+        ``gemini_id`` of another shape in the list is treated as a dependency —
+        that shape must be processed first.
+
+        Raises
+        ------
+        ValueError
+            If a circular dependency is detected.
+        """
+        id_to_shape: dict[str, object] = {
+            gs.integration.gemini_id: gs
+            for gs in self.gemini_shapes
+            if gs.integration.gemini_id
+        }
+
+        in_degree: dict[int, int] = {id(gs): 0 for gs in self.gemini_shapes}
+        dependents: dict[int, list] = {id(gs): [] for gs in self.gemini_shapes}
+
+        for gs in self.gemini_shapes:
+            for ctx in gs.integration.contexts:
+                if ctx.startswith("gemini_") and ctx in id_to_shape:
+                    dep = id_to_shape[ctx]
+                    dependents[id(dep)].append(gs)
+                    in_degree[id(gs)] += 1
+
+        queue: collections.deque = collections.deque(
+            gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0
+        )
+        ordered: list = []
+        while queue:
+            node = queue.popleft()
+            ordered.append(node)
+            for dependent in dependents[id(node)]:
+                in_degree[id(dependent)] -= 1
+                if in_degree[id(dependent)] == 0:
+                    queue.append(dependent)
+
+        if len(ordered) != len(self.gemini_shapes):
+            raise ValueError(
+                "Circular dependency detected in Gemini shape contexts. "
+                "Ensure there are no cycles among gemini_id references."
+            )
+
+        return ordered
+
+    def _process_gemini_shapes(self):
+        """
+        Process all shapes configured for Gemini LLM synthesis.
+
+        Shapes are processed in dependency order (any shape whose ``gemini_id``
+        appears in another shape's ``contexts`` is processed first).
+
+        For each GeminiShape the ``contexts`` list is walked in order and each
+        entry resolved via :meth:`_resolve_context_item` — which handles
+        ``"self"``, ``"slide_self"``, Gemini box references (``gemini_``-prefix),
+        and Looker meta-look names.  The assembled context string is then sent to
+        the Gemini API together with the shape's current text and prompt.
+
+        On error: the error message is written into the text box and a red outline
+        is drawn around the shape (suppressed by ``--hide-errors``).
+        """
+        if not self.gemini_shapes:
+            return
+
+        if not gemini_module.is_available():
+            logging.warning(
+                "google-genai is not installed; Gemini synthesis shapes will be skipped. "
+                "Install it with 'pip install looker_powerpoint[llm]' to enable LLM features."
+            )
+            return
+
+        try:
+            ordered_shapes = self._sort_gemini_shapes_by_dependency()
+        except ValueError as e:
+            logging.error(f"Cannot process Gemini shapes: {e}")
+            return
+
+        # Stores synthesized text keyed by gemini_id for chaining
+        gemini_results: dict[str, str] = {}
+
+        for gemini_shape in ordered_shapes:
+            slide = self.presentation.slides[gemini_shape.slide_number]
+            current_shape = None
+            for shape in slide.shapes:
+                if shape.shape_id == gemini_shape.shape_number:
+                    current_shape = shape
+                    break
+
+            if current_shape is None:
+                logging.error(
+                    f"Could not find shape {gemini_shape.shape_number} on slide "
+                    f"{gemini_shape.slide_number} for Gemini synthesis."
+                )
+                continue
+
+            try:
+                # Capture current text first (needed by "self" resolver and as
+                # replacement-target context for synthesize())
+                current_text = ""
+                if hasattr(current_shape, "text_frame"):
+                    current_text = current_shape.text_frame.text
+                else:
+                    logging.warning(
+                        f"Shape {gemini_shape.shape_number} on slide "
+                        f"{gemini_shape.slide_number} has no text_frame; "
+                        "skipping Gemini synthesis."
+                    )
+                    continue
+
+                # Resolve each context entry in order
+                context_parts: list[str] = []
+                for ctx in gemini_shape.integration.contexts:
+                    resolved = self._resolve_context_item(
+                        ctx,
+                        gemini_shape.shape_number,
+                        gemini_shape.slide_number,
+                        gemini_results,
+                        current_text,
+                    )
+                    if resolved is not None:
+                        label, content = resolved
+                        if content:
+                            context_parts.append(f"{label}:\n{content}")
+
+                context_data_str = "\n\n".join(context_parts)
+
+                synthesized = gemini_module.synthesize(
+                    prompt=gemini_shape.integration.prompt,
+                    context_data_str=context_data_str,
+                    current_text=current_text,
+                    model_name=gemini_shape.integration.model,
+                )
+
+                update_text_frame_preserving_formatting(
+                    current_shape.text_frame, synthesized
+                )
+                logging.debug(
+                    f"Gemini synthesis applied to shape {gemini_shape.shape_number} "
+                    f"on slide {gemini_shape.slide_number}."
+                )
+
+                # Store result for downstream shapes
+                if gemini_shape.integration.gemini_id:
+                    gemini_results[gemini_shape.integration.gemini_id] = synthesized
+
+            except Exception as e:
+                error_msg = str(e)
+                logging.error(
+                    f"Gemini synthesis failed for shape {gemini_shape.shape_number} "
+                    f"on slide {gemini_shape.slide_number}: {error_msg}"
+                )
+                # Populate error message into text box
+                try:
+                    if hasattr(current_shape, "text_frame"):
+                        update_text_frame_preserving_formatting(
+                            current_shape.text_frame, error_msg
+                        )
+                except Exception:
+                    pass
+                # Draw red outline around the failed shape
+                if not self.args.hide_errors:
+                    self._mark_failure(slide, current_shape)
+
     def _make_df(self, result):
         """
         Create a pandas DataFrame from Looker data based on the integration settings.
@@ -607,6 +883,31 @@ class Cli:
             return
 
         for ref in references:
+            integration = ref.get("integration", {})
+            # Try to parse as a Gemini shape first (type: gemini discriminator)
+            if isinstance(integration, dict) and integration.get("type") == "gemini":
+                try:
+                    gemini_shape = GeminiShape.model_validate(ref)
+                    if gemini_shape.shape_type not in (
+                        "TEXT_BOX",
+                        "TITLE",
+                        "AUTO_SHAPE",
+                    ):
+                        logging.warning(
+                            f"Gemini synthesis config found on shape "
+                            f"{gemini_shape.shape_id} (type: {gemini_shape.shape_type}). "
+                            "Gemini synthesis only works for text boxes (TEXT_BOX, TITLE, "
+                            "AUTO_SHAPE). This shape will be skipped."
+                        )
+                        continue
+                    self.gemini_shapes.append(gemini_shape)
+                except ValidationError as e:
+                    logging.debug(
+                        f"Could not parse Gemini config in shape {ref.get('shape_id', '?')}: {e}"
+                    )
+                continue
+
+            # Otherwise try to parse as a regular Looker shape
             try:
                 self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
@@ -811,6 +1112,9 @@ class Cli:
                         for shape in slide.shapes:
                             if shape.shape_id == looker_shape.shape_number:
                                 self._mark_failure(slide, shape)
+
+        # Process Gemini synthesis shapes
+        self._process_gemini_shapes()
 
         if self.args.self:
             self.destination = self.file_path

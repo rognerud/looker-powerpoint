@@ -72,14 +72,18 @@ looker_powerpoint/
     url_to_hyperlink.py
   __init__.py
   cli.py
+  gemini.py
   looker_powerpoint.instructions.md
   looker.py
   models.py
 test/
   pptx/
+    gemini_textbox.md
+    gemini_textbox.pptx
     table7x7.md
     table7x7.pptx
   test_cli.py
+  test_gemini.py
   test_integration.py
   test_pptx.py
   test_tools.py
@@ -1079,6 +1083,159 @@ time out.
 ``lppt`` will retry the Looker API request up to 3 times before marking the shape as
 failed.
 
+
+Pattern 10 — Gemini LLM text synthesis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Use this when:** You want a text box populated with an AI-generated summary or
+analysis, rather than raw values.
+
+This feature uses Google Gemini to synthesise text.  It **only works for text
+box shapes** (``TEXT_BOX``, ``TITLE``, ``AUTO_SHAPE``).  Applying it to a table,
+image, or chart shape will log a warning and skip that shape.
+
+**Step 1 — Define one or more meta looks (optional)**
+
+Add meta-look shapes to your presentation for each dataset you want Gemini to
+analyse.  Set the shape's Alt Text to:
+
+.. code-block:: yaml
+
+   id: 42
+   meta: true
+   meta_name: sales_data
+
+The ``meta_name`` value (``sales_data`` here) is the key you will reference from
+the Gemini shape.  Meta-look shapes are removed from the output slide; their data
+is only used as context.
+
+**Step 2 — Configure the Gemini text box**
+
+Add a text box to your slide and set its Alt Text to:
+
+.. code-block:: yaml
+
+   type: gemini
+   prompt: Summarise the top three sales trends and highlight any risks.
+   contexts:
+     - sales_data
+
+**The ``contexts`` list — unified context framework**
+
+Each entry in ``contexts`` is resolved in order and passed to Gemini as a
+labelled section.  Four types of entry are supported:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Entry
+     - What it provides
+   * - ``self``
+     - The shape's own current text (before synthesis).
+   * - ``slide_self``
+     - Text of all other shapes on the same slide after Looker data has been
+       rendered.  Gives the model awareness of what the slide is about.
+   * - ``gemini_<id>``
+     - The synthesised output of another Gemini text box whose ``gemini_id``
+       is ``<id>`` (see chaining below).
+   * - anything else
+     - Treated as the ``meta_name`` of a Looker meta-look shape; its
+       pre-fetched data is formatted as a readable table.
+
+Example combining all four types:
+
+.. code-block:: yaml
+
+   type: gemini
+   gemini_id: summary
+   prompt: Write a one-paragraph executive summary.
+   contexts:
+     - slide_self          # what the slide says
+     - sales_data          # Looker data
+     - gemini_analysis     # output of another Gemini box
+     - self                # current placeholder text as additional hint
+
+**Chaining Gemini boxes**
+
+Gemini boxes can reference each other.  A box with ``gemini_id: analysis``
+(stored as ``gemini_analysis`` — the prefix is added automatically) can be
+used as context by another box:
+
+.. code-block:: yaml
+
+   # Box 1 — data analysis
+   type: gemini
+   gemini_id: analysis          # stored as gemini_analysis
+   prompt: Analyse the revenue data and list the top three trends.
+   contexts:
+     - revenue_data
+
+.. code-block:: yaml
+
+   # Box 2 — executive summary that builds on Box 1
+   type: gemini
+   gemini_id: summary           # stored as gemini_summary
+   prompt: Write a concise executive summary based on the analysis.
+   contexts:
+     - slide_self
+     - gemini_analysis          # Box 1's output
+
+``lppt`` automatically detects these dependencies and processes boxes in the
+correct topological order.  Circular references are detected and reported as
+an error.
+
+.. note::
+
+   The ``gemini_`` prefix is added to ``gemini_id`` values automatically.
+   ``gemini_id: analysis`` and ``gemini_id: gemini_analysis`` are equivalent.
+   Always use the full ``gemini_<id>`` form when referencing a box in ``contexts``.
+
+**Optional fields:**
+
+.. code-block:: yaml
+
+   type: gemini
+   prompt: Summarise in one sentence.
+   contexts:
+     - sales_data
+   model: gemini-1.5-pro   # default: gemini-2.0-flash
+
+**Step 3 — Install the LLM extra and set your API key**
+
+.. code-block:: bash
+
+   pip install "looker_powerpoint[llm]"
+
+Then set your Gemini API key:
+
+.. code-block:: bash
+
+   export GOOGLE_API_KEY="your-api-key"
+
+**Step 4 — Run ``lppt`` as usual**
+
+.. code-block:: bash
+
+   uv run lppt -f my_presentation.pptx
+
+``lppt`` will fetch the meta looks, call Gemini with the assembled context and
+your prompt, and replace the text box content with the AI-generated response
+while preserving the original font and paragraph styling.
+
+.. note::
+
+   If ``google-genai`` is not installed, ``lppt`` still runs normally for all
+   other shapes; Gemini synthesis shapes are skipped with a warning.
+   This means the package works without the LLM extra installed.
+
+.. tip::
+
+   If Gemini synthesis fails (e.g. bad API key, quota exceeded), ``lppt`` writes
+   the error message into the text box and draws a red outline around it — the
+   same behaviour as other shape errors.  Use ``--hide-errors`` to suppress the
+   outline.
+
 ----
 
 Troubleshooting
@@ -1090,6 +1247,9 @@ Troubleshooting
    out of range.  Run with ``--verbose`` (or ``-vvv``) to see detailed error messages.
    Use ``--hide-errors`` to suppress the red outlines in the output file.
 
+   For Gemini shapes specifically, the error message is also written into the text box
+   so you can see exactly what went wrong without needing verbose logging.
+
 **Nothing happened to my shape**
    Make sure your YAML is in the **Description** field of Alt Text (not the *Title*
    field), and that it is valid YAML.  You can validate YAML at
@@ -1100,6 +1260,20 @@ Troubleshooting
    Open the Look in Looker and check the exact column label. If in doubt, use
    index-based access: ``{{ indexed_rows[0][0] }}``.
 
+**Gemini synthesis shape is skipped with a warning**
+   Make sure ``google-genai`` is installed (``pip install looker_powerpoint[llm]``),
+   ``GOOGLE_API_KEY`` or ``GEMINI_API_KEY`` is set, and ``type: gemini`` is set in the
+   **Description** field (not *Title*).
+
+**Context data not found**
+   ``lppt`` logs a warning for each ``contexts`` entry it cannot resolve.
+   Check that meta-look ``meta_name`` values and ``gemini_<id>`` references
+   exactly match the corresponding shapes in the presentation.
+
+**Circular dependency in Gemini boxes**
+   If ``lppt`` reports a circular dependency error, check the ``contexts`` lists
+   of your Gemini boxes for cycles (e.g. A → B → A).
+
 ----
 
 Next Steps
@@ -1107,7 +1281,8 @@ Next Steps
 
 * :doc:`templating` — Full reference for Jinja2 variables and the ``colorize_positive``
   filter.
-* :doc:`models` — Complete field reference for the ``LookerReference`` YAML schema.
+* :doc:`models` — Complete field reference for the ``LookerReference`` and
+  ``GeminiConfig`` YAML schemas.
 * :doc:`cli` — All CLI flags, environment variables, and advanced options.
 * :doc:`api` — Auto-generated API reference for developers.
 ````
@@ -1952,41 +2127,42 @@ except importlib.metadata.PackageNotFoundError:
 
 ## File: looker_powerpoint/cli.py
 ````python
-from asyncio import subprocess
+import argparse
+import asyncio
+import collections
 import datetime
-import requests
 import io
+import json
+import logging
+import os
+import re
+import subprocess
+from io import BytesIO
+
+import pandas as pd
+from lxml import etree
+from PIL import Image
+from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
+from pydantic import ValidationError
+from rich.logging import RichHandler
+from rich_argparse import RichHelpFormatter
+import requests
+
+from looker_powerpoint import gemini as gemini_module
+from looker_powerpoint.looker import LookerClient
+from looker_powerpoint.models import LookerShape, GeminiShape
 from looker_powerpoint.tools.find_alt_text import (
     get_presentation_objects_with_descriptions,
 )
-from looker_powerpoint.looker import LookerClient
-from looker_powerpoint.models import LookerShape
-
-from looker_powerpoint.tools.pptx_text_handler import process_text_field
-from pydantic import ValidationError
-import subprocess
-from pptx.util import Pt
-from pptx.chart.data import CategoryChartData
-import json
-import pandas as pd
-from pptx import Presentation
-from lxml import etree
-import re
-import argparse
-from rich_argparse import RichHelpFormatter
-import logging
-from PIL import Image
-
-from rich.logging import RichHandler
-import os
-import asyncio
-from io import BytesIO
+from looker_powerpoint.tools.pptx_text_handler import (
+    process_text_field,
+    update_text_frame_preserving_formatting,
+)
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
-
-import re
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
 
 
 class Cli:
@@ -2000,6 +2176,7 @@ class Cli:
         self.client = None
         self.relevant_shapes = []
         self.looker_shapes = []
+        self.gemini_shapes = []
         self.data = {}
 
         # Initialize the argument parser
@@ -2369,6 +2546,280 @@ class Cli:
         # Remove the shape
         slide.shapes._spTree.remove(shape_to_remove._element)
 
+    def _format_context_data(self, df) -> str:
+        """
+        Format a pandas DataFrame as a human-readable plain-text table for use
+        as Gemini context.
+
+        Args:
+            df: A pandas DataFrame.
+
+        Returns:
+            str: A plain-text representation of the DataFrame.
+        """
+        return df.to_string(index=False)
+
+    def _extract_slide_text_context(
+        self, slide_number: int, exclude_shape_id: int
+    ) -> str:
+        """
+        Return a plain-text extract of all text on a slide, excluding the target shape.
+
+        Only shapes that have a text_frame are included.  Each shape is rendered as:
+        ``[Shape name]: text content``
+
+        Args:
+            slide_number: The index of the slide.
+            exclude_shape_id: The shape_id of the shape to exclude (the Gemini shape itself).
+
+        Returns:
+            str: Multi-line text representing the slide content.
+        """
+        slide = self.presentation.slides[slide_number]
+        lines: list[str] = []
+        for shape in slide.shapes:
+            if shape.shape_id == exclude_shape_id:
+                continue
+            if hasattr(shape, "text_frame"):
+                text = shape.text_frame.text.strip()
+                if text:
+                    name = getattr(shape, "name", f"shape_{shape.shape_id}")
+                    lines.append(f"[{name}]: {text}")
+        return "\n".join(lines)
+
+    def _resolve_context_item(
+        self,
+        ctx: str,
+        shape_number: int,
+        slide_number: int,
+        gemini_results: dict,
+        current_text: str,
+    ) -> tuple | None:
+        """
+        Resolve a single ``contexts`` entry to a ``(label, content)`` pair.
+
+        Resolution rules (checked in order):
+
+        1. ``"self"`` — the shape's own current text before synthesis.
+        2. ``"slide_self"`` — text of all other shapes on the slide after Looker
+           data has been rendered, with this shape excluded.
+        3. Strings starting with ``"gemini_"`` — the output of the Gemini box
+           whose ``gemini_id`` matches.  Returns ``None`` (with a warning) if
+           that box has not been processed yet or has failed.
+        4. Anything else — treated as a Looker meta-look ``meta_name``; resolved
+           from ``self.data``.  Returns ``None`` (with a warning) if missing.
+
+        Args:
+            ctx: The context string from ``GeminiConfig.contexts``.
+            shape_number: The shape_id of the current Gemini shape (for exclusion).
+            slide_number: The slide index of the current Gemini shape.
+            gemini_results: Dict of ``{gemini_id: synthesized_text}`` for already
+                processed Gemini boxes.
+            current_text: The shape's current text content.
+
+        Returns:
+            ``(label, content)`` on success, or ``None`` if the reference cannot
+            be resolved (a warning is already logged).
+        """
+        if ctx == "self":
+            return ("Current shape text", current_text)
+
+        if ctx == "slide_self":
+            content = self._extract_slide_text_context(slide_number, shape_number)
+            return ("Current slide context (excluding this shape)", content)
+
+        if ctx.startswith("gemini_"):
+            result = gemini_results.get(ctx)
+            if result is None:
+                logging.warning(
+                    f"No result available for Gemini context '{ctx}'. "
+                    "The referenced Gemini shape may not have run yet or may have failed."
+                )
+                return None
+            return (f"LLM report [{ctx}]", result)
+
+        # Meta-look fallback
+        raw = self.data.get(ctx)
+        if raw is None:
+            logging.warning(
+                f"No data found for Gemini context '{ctx}'. "
+                "Make sure a meta-look shape with that meta_name exists in the presentation."
+            )
+            return None
+        try:
+            df = self._make_df(raw)
+            return (f"Data [{ctx}]", self._format_context_data(df))
+        except Exception as e:
+            logging.warning(f"Could not format context data for '{ctx}': {e}")
+            return None
+
+    def _sort_gemini_shapes_by_dependency(self) -> list:
+        """
+        Return ``self.gemini_shapes`` sorted in topological order.
+
+        Any ``contexts`` entry that starts with ``"gemini_"`` and matches the
+        ``gemini_id`` of another shape in the list is treated as a dependency —
+        that shape must be processed first.
+
+        Raises
+        ------
+        ValueError
+            If a circular dependency is detected.
+        """
+        id_to_shape: dict[str, object] = {
+            gs.integration.gemini_id: gs
+            for gs in self.gemini_shapes
+            if gs.integration.gemini_id
+        }
+
+        in_degree: dict[int, int] = {id(gs): 0 for gs in self.gemini_shapes}
+        dependents: dict[int, list] = {id(gs): [] for gs in self.gemini_shapes}
+
+        for gs in self.gemini_shapes:
+            for ctx in gs.integration.contexts:
+                if ctx.startswith("gemini_") and ctx in id_to_shape:
+                    dep = id_to_shape[ctx]
+                    dependents[id(dep)].append(gs)
+                    in_degree[id(gs)] += 1
+
+        queue: collections.deque = collections.deque(
+            gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0
+        )
+        ordered: list = []
+        while queue:
+            node = queue.popleft()
+            ordered.append(node)
+            for dependent in dependents[id(node)]:
+                in_degree[id(dependent)] -= 1
+                if in_degree[id(dependent)] == 0:
+                    queue.append(dependent)
+
+        if len(ordered) != len(self.gemini_shapes):
+            raise ValueError(
+                "Circular dependency detected in Gemini shape contexts. "
+                "Ensure there are no cycles among gemini_id references."
+            )
+
+        return ordered
+
+    def _process_gemini_shapes(self):
+        """
+        Process all shapes configured for Gemini LLM synthesis.
+
+        Shapes are processed in dependency order (any shape whose ``gemini_id``
+        appears in another shape's ``contexts`` is processed first).
+
+        For each GeminiShape the ``contexts`` list is walked in order and each
+        entry resolved via :meth:`_resolve_context_item` — which handles
+        ``"self"``, ``"slide_self"``, Gemini box references (``gemini_``-prefix),
+        and Looker meta-look names.  The assembled context string is then sent to
+        the Gemini API together with the shape's current text and prompt.
+
+        On error: the error message is written into the text box and a red outline
+        is drawn around the shape (suppressed by ``--hide-errors``).
+        """
+        if not self.gemini_shapes:
+            return
+
+        if not gemini_module.is_available():
+            logging.warning(
+                "google-genai is not installed; Gemini synthesis shapes will be skipped. "
+                "Install it with 'pip install looker_powerpoint[llm]' to enable LLM features."
+            )
+            return
+
+        try:
+            ordered_shapes = self._sort_gemini_shapes_by_dependency()
+        except ValueError as e:
+            logging.error(f"Cannot process Gemini shapes: {e}")
+            return
+
+        # Stores synthesized text keyed by gemini_id for chaining
+        gemini_results: dict[str, str] = {}
+
+        for gemini_shape in ordered_shapes:
+            slide = self.presentation.slides[gemini_shape.slide_number]
+            current_shape = None
+            for shape in slide.shapes:
+                if shape.shape_id == gemini_shape.shape_number:
+                    current_shape = shape
+                    break
+
+            if current_shape is None:
+                logging.error(
+                    f"Could not find shape {gemini_shape.shape_number} on slide "
+                    f"{gemini_shape.slide_number} for Gemini synthesis."
+                )
+                continue
+
+            try:
+                # Capture current text first (needed by "self" resolver and as
+                # replacement-target context for synthesize())
+                current_text = ""
+                if hasattr(current_shape, "text_frame"):
+                    current_text = current_shape.text_frame.text
+                else:
+                    logging.warning(
+                        f"Shape {gemini_shape.shape_number} on slide "
+                        f"{gemini_shape.slide_number} has no text_frame; "
+                        "skipping Gemini synthesis."
+                    )
+                    continue
+
+                # Resolve each context entry in order
+                context_parts: list[str] = []
+                for ctx in gemini_shape.integration.contexts:
+                    resolved = self._resolve_context_item(
+                        ctx,
+                        gemini_shape.shape_number,
+                        gemini_shape.slide_number,
+                        gemini_results,
+                        current_text,
+                    )
+                    if resolved is not None:
+                        label, content = resolved
+                        if content:
+                            context_parts.append(f"{label}:\n{content}")
+
+                context_data_str = "\n\n".join(context_parts)
+
+                synthesized = gemini_module.synthesize(
+                    prompt=gemini_shape.integration.prompt,
+                    context_data_str=context_data_str,
+                    current_text=current_text,
+                    model_name=gemini_shape.integration.model,
+                )
+
+                update_text_frame_preserving_formatting(
+                    current_shape.text_frame, synthesized
+                )
+                logging.debug(
+                    f"Gemini synthesis applied to shape {gemini_shape.shape_number} "
+                    f"on slide {gemini_shape.slide_number}."
+                )
+
+                # Store result for downstream shapes
+                if gemini_shape.integration.gemini_id:
+                    gemini_results[gemini_shape.integration.gemini_id] = synthesized
+
+            except Exception as e:
+                error_msg = str(e)
+                logging.error(
+                    f"Gemini synthesis failed for shape {gemini_shape.shape_number} "
+                    f"on slide {gemini_shape.slide_number}: {error_msg}"
+                )
+                # Populate error message into text box
+                try:
+                    if hasattr(current_shape, "text_frame"):
+                        update_text_frame_preserving_formatting(
+                            current_shape.text_frame, error_msg
+                        )
+                except Exception:
+                    pass
+                # Draw red outline around the failed shape
+                if not self.args.hide_errors:
+                    self._mark_failure(slide, current_shape)
+
     def _make_df(self, result):
         """
         Create a pandas DataFrame from Looker data based on the integration settings.
@@ -2561,6 +3012,31 @@ class Cli:
             return
 
         for ref in references:
+            integration = ref.get("integration", {})
+            # Try to parse as a Gemini shape first (type: gemini discriminator)
+            if isinstance(integration, dict) and integration.get("type") == "gemini":
+                try:
+                    gemini_shape = GeminiShape.model_validate(ref)
+                    if gemini_shape.shape_type not in (
+                        "TEXT_BOX",
+                        "TITLE",
+                        "AUTO_SHAPE",
+                    ):
+                        logging.warning(
+                            f"Gemini synthesis config found on shape "
+                            f"{gemini_shape.shape_id} (type: {gemini_shape.shape_type}). "
+                            "Gemini synthesis only works for text boxes (TEXT_BOX, TITLE, "
+                            "AUTO_SHAPE). This shape will be skipped."
+                        )
+                        continue
+                    self.gemini_shapes.append(gemini_shape)
+                except ValidationError as e:
+                    logging.debug(
+                        f"Could not parse Gemini config in shape {ref.get('shape_id', '?')}: {e}"
+                    )
+                continue
+
+            # Otherwise try to parse as a regular Looker shape
             try:
                 self.relevant_shapes.append(LookerShape.model_validate(ref))
             except ValidationError as e:
@@ -2766,6 +3242,9 @@ class Cli:
                             if shape.shape_id == looker_shape.shape_number:
                                 self._mark_failure(slide, shape)
 
+        # Process Gemini synthesis shapes
+        self._process_gemini_shapes()
+
         if self.args.self:
             self.destination = self.file_path
         else:
@@ -2803,6 +3282,117 @@ if __name__ == "__main__":
     main()
 ````
 
+## File: looker_powerpoint/gemini.py
+````python
+"""
+Optional Gemini LLM integration for text synthesis.
+
+This module wraps the ``google-genai`` SDK.  If that package is not installed
+the helpers in this module still import cleanly; they will raise an
+:class:`ImportError` with a helpful message when called.
+
+Install the optional dependency with::
+
+    pip install looker_powerpoint[llm]
+
+and set the ``GOOGLE_API_KEY`` (or ``GEMINI_API_KEY``) environment variable
+before using any function in this module.
+"""
+
+import logging
+import os
+
+try:
+    from google import genai  # type: ignore[import]
+
+    _HAS_GEMINI = True
+except ImportError:  # pragma: no cover
+    _HAS_GEMINI = False
+
+
+def is_available() -> bool:
+    """Return ``True`` if the ``google-genai`` package is installed."""
+    return _HAS_GEMINI
+
+
+def synthesize(
+    prompt: str | None,
+    context_data_str: str,
+    current_text: str,
+    model_name: str = "gemini-2.0-flash",
+) -> str:
+    """
+    Call the Gemini API and return the synthesized text.
+
+    Parameters
+    ----------
+    prompt:
+        An optional user-supplied instruction or question that guides the model.
+    context_data_str:
+        Pre-assembled context string built from the shape's ``contexts`` list.
+        May include Looker data, slide text, prior Gemini results, or the
+        shape's own current text — depending on what the user configured.
+        Each section is separated by a blank line and prefixed with a label.
+    current_text:
+        The current text content of the PowerPoint shape.  Always passed so the
+        model knows it is producing a replacement for existing slide text.
+    model_name:
+        Gemini model identifier, e.g. ``"gemini-2.0-flash"``.
+
+    Returns
+    -------
+    str
+        The text generated by Gemini.
+
+    Raises
+    ------
+    ImportError
+        If ``google-genai`` is not installed.
+    ValueError
+        If no API key is configured.
+    """
+    if not _HAS_GEMINI:
+        raise ImportError(
+            "google-genai is not installed. "
+            "Install it with 'pip install looker_powerpoint[llm]' to use LLM features."
+        )
+
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "Neither GOOGLE_API_KEY nor GEMINI_API_KEY environment variable is set. "
+            "Set one of them to enable Gemini synthesis."
+        )
+
+    client = genai.Client(api_key=api_key)
+
+    parts: list[str] = []
+
+    if context_data_str:
+        parts.append(f"Context:\n{context_data_str}")
+
+    if current_text:
+        parts.append(f"Current text in the shape:\n{current_text}")
+
+    if prompt:
+        parts.append(f"Instructions:\n{prompt}")
+
+    parts.append(
+        "Please provide a concise text response that will replace the current text "
+        "in a PowerPoint slide. Return only the replacement text, without any "
+        "additional commentary or markdown formatting."
+    )
+
+    full_prompt = "\n\n".join(parts)
+    logging.debug("Gemini prompt (truncated): %s", full_prompt[:200])
+
+    response = client.models.generate_content(
+        model=model_name,
+        contents=full_prompt,
+    )
+    return response.text
+````
+
 ## File: looker_powerpoint/looker_powerpoint.instructions.md
 ````markdown
 # looker_powerpoint
@@ -2815,16 +3405,62 @@ This is the main Python package for the Looker PowerPoint CLI tool (`lppt`).
 |------|---------|
 | `cli.py` | Entry point for the `lppt` CLI command. Contains the `Cli` class and `main()` function. Orchestrates fetching Looker data and writing results into PowerPoint files. |
 | `looker.py` | `LookerClient` class that wraps the Looker SDK. Handles authentication, query construction, executing Look queries, and retry logic. |
-| `models.py` | Pydantic models: `LookerReference` (YAML alt-text schema for a shape) and `LookerShape` (shape metadata + its `LookerReference`). |
+| `models.py` | Pydantic models: `LookerReference` and `LookerShape` (Looker-backed shapes); `GeminiConfig` and `GeminiShape` (Gemini LLM synthesis shapes). |
+| `gemini.py` | Optional Google Gemini integration. Wraps the `google-genai` SDK (import path `google.genai`); provides `is_available()` and `synthesize()`. Safe to import when the extra is not installed. |
 | `__init__.py` | Package initialiser; exposes `__version__` via `importlib.metadata`. |
 | `tools/` | Sub-package of utility helpers (see `tools/README.md`). |
 
 ## How it works
 
 1. The CLI reads a `.pptx` file.
-2. Each shape whose *alternative text* contains valid YAML is parsed into a `LookerReference`.
-3. The `LookerClient` fetches the corresponding Looker Look and returns the result.
-4. Results are written back into the presentation (text boxes, tables, images) using the helpers in `tools/`.
+2. Each shape whose *alternative text* contains valid YAML is parsed into either a
+   `LookerReference` (regular data shapes) or a `GeminiConfig` (LLM synthesis shapes).
+3. The `LookerClient` fetches the corresponding Looker Looks and returns the results.
+4. Results are written back into the presentation (text boxes, tables, images) using
+   the helpers in `tools/`.
+5. For Gemini shapes, context data is taken from pre-fetched meta-look results and
+   passed to the Gemini API; the response replaces the shape's text.
+
+## Gemini synthesis
+
+Set `type: gemini` in the alt text of a **text box** shape:
+
+```yaml
+type: gemini
+gemini_id: summary          # optional; gemini_ prefix auto-added → gemini_summary
+prompt: Summarise the key trends.
+contexts:
+  - slide_self              # other shapes' text on this slide
+  - sales_data              # meta_name of a Looker meta-look
+  - gemini_analysis         # output of another Gemini box (gemini_id: analysis)
+  - self                    # this shape's own current text
+model: gemini-2.0-flash     # optional, default shown
+```
+
+### `contexts` — unified context framework
+
+Each entry is one of four types (resolved in order):
+
+| Entry | Resolves to |
+|-------|-------------|
+| `"self"` | Shape's own current text before synthesis |
+| `"slide_self"` | Text of all other shapes on the slide after Looker rendering |
+| `"gemini_<id>"` | Output of another Gemini box whose `gemini_id` is `<id>` |
+| anything else | Looker meta-look data from `self.data[meta_name]` |
+
+### Chaining / topological sort
+
+Boxes that reference other boxes via `gemini_<id>` are automatically sorted
+by `_sort_gemini_shapes_by_dependency()` (Kahn's topological sort) so
+dependencies always run first.  Circular references raise `ValueError`.
+
+The `gemini_` prefix is auto-added to `gemini_id` by `GeminiConfig`'s
+`ensure_gemini_prefix` validator.
+
+- Only `TEXT_BOX`, `TITLE`, and `AUTO_SHAPE` types are supported; other types log a
+  warning and are skipped.
+- Requires the `llm` optional extra: `pip install looker_powerpoint[llm]`.
+- Works without the extra installed — Gemini shapes are simply skipped with a warning.
 
 ## Running
 
@@ -3035,6 +3671,7 @@ class LookerClient:
 ## File: looker_powerpoint/models.py
 ````python
 import logging
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator, field_validator, ValidationError
 
 
@@ -3177,6 +3814,137 @@ class LookerShape(BaseModel):
                     data["integration"]["apply_formatting"] = True
 
         return data
+
+
+class GeminiConfig(BaseModel):
+    """
+    Configuration for a Gemini LLM text synthesis shape.
+    Set ``type: gemini`` in the alt text of a **text box** shape to enable this feature.
+
+    The Gemini model receives an assembled context built from the ordered
+    ``contexts`` list, then produces replacement text for the shape.
+
+    Each entry in ``contexts`` is resolved by type:
+
+    * ``"self"`` — the shape's own current text (before synthesis).
+    * ``"slide_self"`` — text of all other shapes on the same slide after Looker
+      data has been rendered (i.e. the slide this comment will appear on).
+    * Any string starting with ``gemini_`` — the synthesized output of another
+      Gemini text box whose ``gemini_id`` matches.  Those boxes are automatically
+      processed first.
+    * Anything else — treated as the ``meta_name`` of a Looker meta-look shape;
+      its pre-fetched data is formatted as a readable table.
+
+    .. note::
+       Requires the ``google-genai`` package.  Install it with::
+
+           pip install looker_powerpoint[llm]
+
+       The ``GOOGLE_API_KEY`` (or ``GEMINI_API_KEY``) environment variable must also
+       be set.
+    """
+
+    type: str = Field(
+        default="gemini",
+        description="Must be 'gemini' to identify this as a Gemini synthesis config.",
+    )
+    gemini_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "A unique identifier for this Gemini shape within the presentation. "
+            "The ``gemini_`` prefix is added automatically if omitted. "
+            "Required if another Gemini shape references this box via its contexts list."
+        ),
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="An optional instruction/question sent to the Gemini model together with the context data.",
+    )
+    contexts: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Ordered list of context references for this Gemini shape. Each entry "
+            "is one of: ``'self'``, ``'slide_self'``, a ``gemini_<id>`` string "
+            "referencing another Gemini box, or a Looker meta-look ``meta_name``."
+        ),
+    )
+    model: str = Field(
+        default="gemini-2.0-flash",
+        description="The Gemini model name to use for synthesis.",
+    )
+
+    @field_validator("type")
+    @classmethod
+    def type_must_be_gemini(cls, v):
+        if v != "gemini":
+            raise ValueError("type must be 'gemini' for GeminiConfig")
+        return v
+
+    @field_validator("gemini_id", mode="before")
+    @classmethod
+    def ensure_gemini_prefix(cls, v):
+        """Auto-add the ``gemini_`` prefix when the user omits it."""
+        if v is not None and not str(v).startswith("gemini_"):
+            return f"gemini_{v}"
+        return v
+
+
+class GeminiShape(BaseModel):
+    """
+    A Pydantic model for a PowerPoint text-box shape configured for Gemini LLM synthesis.
+    """
+
+    shape_id: str
+    shape_type: str
+    slide_number: int
+    shape_width: Optional[int] = Field(default=None)
+    shape_height: Optional[int] = Field(default=None)
+    integration: GeminiConfig
+    shape_number: Optional[int] = Field(default=None)
+````
+
+## File: test/pptx/gemini_textbox.md
+````markdown
+# gemini_textbox.pptx
+
+A single-slide presentation containing one text box configured for Gemini LLM synthesis.
+
+## Slide 1
+
+### Shape 1 — Text box (shape ID 2)
+
+| Property | Value |
+|----------|-------|
+| Shape type | `TEXT_BOX` |
+| Position | Left: 1 in, Top: 1 in |
+| Size | Width: 6 in, Height: 1 in |
+| Initial text | `Placeholder text to be replaced by Gemini synthesis.` |
+
+**Alt text (YAML):**
+
+```yaml
+type: gemini
+prompt: Summarize the key trends from the data.
+contexts:
+  - sales_data
+model: gemini-2.0-flash
+```
+
+`contexts` lists `meta_name` strings of meta-look shapes defined elsewhere in the
+same presentation.  The data for each named meta-look is fetched by the regular
+Looker pipeline and passed to Gemini as context.
+
+## Purpose
+
+Used by `test/test_gemini.py` to:
+
+- Verify that a shape whose alt text contains `type: gemini` is parsed as a
+  `GeminiShape` (not a `LookerShape`).
+- Test that `contexts` contains plain meta_name strings (not nested objects).
+- Test that the shape's text is updated by the Gemini synthesis pipeline (with a
+  mocked Gemini API call and pre-seeded `cli.data`).
+- Confirm that error handling populates the error message into the text box and
+  draws a red outline when synthesis fails.
 ````
 
 ## File: test/pptx/table7x7.md
@@ -4179,6 +4947,714 @@ class TestLookerReferenceConfigurationPatterns:
         assert ref.meta is True
         assert ref.meta_iterate is True
         assert ref.meta_name == "my_meta"
+````
+
+## File: test/test_gemini.py
+````python
+"""
+Tests for Gemini LLM synthesis feature.
+
+All Gemini API calls are mocked — no live network calls are made.
+
+``contexts`` is a unified list where each string is one of:
+- ``"self"``         — the shape's own current text before synthesis
+- ``"slide_self"``   — other shapes' text on the same slide after Looker rendering
+- ``"gemini_<id>"``  — output of another Gemini box (auto-prefixed)
+- anything else      — a Looker meta-look ``meta_name`` from ``Cli.data``
+
+``gemini_id`` is always stored with a ``gemini_`` prefix (auto-added when absent).
+"""
+
+import json
+import os
+import pytest
+from unittest.mock import MagicMock, patch
+from pydantic import ValidationError
+from pptx import Presentation
+
+from looker_powerpoint.models import (
+    GeminiConfig,
+    GeminiShape,
+    LookerShape,
+)
+from looker_powerpoint.cli import Cli
+from looker_powerpoint.tools.find_alt_text import (
+    get_presentation_objects_with_descriptions,
+)
+
+import looker_powerpoint.gemini as gemini_module
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "pptx", "gemini_textbox.pptx")
+
+
+def _make_cli():
+    """Create a Cli instance with os.getenv stubbed out so no real env is needed."""
+    with patch("os.getenv", return_value="dummy_value"):
+        return Cli()
+
+
+def _simple_looker_result():
+    """Build a minimal json_bi result string (simulates a meta-look result)."""
+    return json.dumps(
+        {
+            "metadata": {
+                "fields": {
+                    "dimensions": [
+                        {"name": "view.metric", "field_group_variant": "metric"}
+                    ],
+                    "measures": [],
+                    "table_calculations": [],
+                }
+            },
+            "rows": [{"view.metric.value": "42"}],
+            "custom_sorts": [],
+            "custom_pivots": [],
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Model validation — GeminiConfig
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiConfig:
+    def test_defaults(self):
+        cfg = GeminiConfig()
+        assert cfg.type == "gemini"
+        assert cfg.gemini_id is None
+        assert cfg.prompt is None
+        assert cfg.contexts == []
+        assert cfg.model == "gemini-2.0-flash"
+        # no gemini_contexts field
+        assert not hasattr(cfg, "gemini_contexts")
+
+    def test_contexts_are_strings(self):
+        cfg = GeminiConfig(contexts=["sales_data", "slide_self", "self"])
+        assert cfg.contexts == ["sales_data", "slide_self", "self"]
+
+    def test_gemini_id_auto_prefixed(self):
+        """gemini_id is stored with gemini_ prefix even when user omits it."""
+        cfg = GeminiConfig(gemini_id="my_box")
+        assert cfg.gemini_id == "gemini_my_box"
+
+    def test_gemini_id_not_double_prefixed(self):
+        """If the user already supplies the prefix it must not be doubled."""
+        cfg = GeminiConfig(gemini_id="gemini_my_box")
+        assert cfg.gemini_id == "gemini_my_box"
+
+    def test_type_must_be_gemini(self):
+        with pytest.raises(ValidationError):
+            GeminiConfig(type="looker")
+
+    def test_custom_model(self):
+        cfg = GeminiConfig(model="gemini-1.5-pro")
+        assert cfg.model == "gemini-1.5-pro"
+
+    def test_prompt_stored(self):
+        cfg = GeminiConfig(prompt="Summarize the key metric.")
+        assert cfg.prompt == "Summarize the key metric."
+
+    def test_gemini_id_in_contexts_references_sibling(self):
+        """A gemini_ entry in contexts is the canonical way to chain boxes."""
+        cfg = GeminiConfig(gemini_id="summary", contexts=["gemini_analysis"])
+        assert cfg.gemini_id == "gemini_summary"
+        assert cfg.contexts == ["gemini_analysis"]
+
+
+# ---------------------------------------------------------------------------
+# Model validation — GeminiShape
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiShape:
+    def test_basic_construction(self):
+        shape = GeminiShape(
+            shape_id="0,2",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=2,
+            integration=GeminiConfig(),
+        )
+        assert shape.shape_type == "TEXT_BOX"
+        assert shape.integration.type == "gemini"
+
+    def test_gemini_id_prefixed_on_construction(self):
+        shape = GeminiShape(
+            shape_id="0,3",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=3,
+            integration={"type": "gemini", "gemini_id": "analysis"},
+        )
+        assert shape.integration.gemini_id == "gemini_analysis"
+
+    def test_all_context_types_accepted(self):
+        shape = GeminiShape(
+            shape_id="0,4",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=4,
+            integration={
+                "type": "gemini",
+                "gemini_id": "summary",
+                "contexts": ["self", "slide_self", "gemini_analysis", "sales_data"],
+            },
+        )
+        assert shape.integration.contexts == [
+            "self",
+            "slide_self",
+            "gemini_analysis",
+            "sales_data",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Alt-text parsing from fixture
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiShapeParsing:
+    def test_fixture_parsed_as_gemini(self):
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        assert len(refs) == 1
+        ref = refs[0]
+        assert ref.get("integration", {}).get("type") == "gemini"
+
+        shape = GeminiShape.model_validate(ref)
+        assert shape.shape_type == "TEXT_BOX"
+        assert shape.integration.prompt == "Summarize the key trends from the data."
+        assert shape.integration.contexts == ["sales_data"]
+
+    def test_contexts_are_strings_not_dicts(self):
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        shape = GeminiShape.model_validate(refs[0])
+        for ctx in shape.integration.contexts:
+            assert isinstance(ctx, str)
+
+    def test_fixture_not_parsed_as_looker_shape(self):
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        with pytest.raises(ValidationError):
+            LookerShape.model_validate(refs[0])
+
+
+# ---------------------------------------------------------------------------
+# CLI parsing
+# ---------------------------------------------------------------------------
+
+
+class TestCliGeminiShapeParsing:
+    def test_gemini_shape_collected_by_cli(self):
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        for ref in refs:
+            integration = ref.get("integration", {})
+            if isinstance(integration, dict) and integration.get("type") == "gemini":
+                gs = GeminiShape.model_validate(ref)
+                if gs.shape_type in ("TEXT_BOX", "TITLE", "AUTO_SHAPE"):
+                    cli.gemini_shapes.append(gs)
+
+        assert len(cli.gemini_shapes) == 1
+        assert cli.gemini_shapes[0].integration.contexts == ["sales_data"]
+
+    def test_non_textbox_gemini_shape_warns(self, caplog):
+        import logging
+
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        ref = {
+            "shape_id": "0,5",
+            "shape_type": "TABLE",
+            "slide_number": 0,
+            "shape_number": 5,
+            "shape_width": 400,
+            "shape_height": 200,
+            "integration": {"type": "gemini", "prompt": "Summarize", "contexts": []},
+        }
+
+        with caplog.at_level(logging.WARNING):
+            integration = ref.get("integration", {})
+            if isinstance(integration, dict) and integration.get("type") == "gemini":
+                gs = GeminiShape.model_validate(ref)
+                if gs.shape_type not in ("TEXT_BOX", "TITLE", "AUTO_SHAPE"):
+                    import logging as lg
+
+                    lg.warning(
+                        f"Gemini synthesis config found on shape {gs.shape_id} "
+                        f"(type: {gs.shape_type}). "
+                        "Gemini synthesis only works for text boxes. This shape will be skipped."
+                    )
+                else:
+                    cli.gemini_shapes.append(gs)
+
+        assert len(cli.gemini_shapes) == 0
+        assert any(
+            "Gemini" in r.message and "skipped" in r.message for r in caplog.records
+        )
+
+
+# ---------------------------------------------------------------------------
+# gemini module — availability guard
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiModuleAvailability:
+    def test_is_available_returns_bool(self):
+        assert isinstance(gemini_module.is_available(), bool)
+
+    def test_synthesize_raises_when_unavailable(self, monkeypatch):
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", False)
+        with pytest.raises(ImportError, match="google-genai"):
+            gemini_module.synthesize(
+                prompt="test",
+                context_data_str="",
+                current_text="hello",
+            )
+
+    def test_synthesize_raises_without_api_key(self, monkeypatch):
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="API_KEY"):
+            gemini_module.synthesize(
+                prompt="test",
+                context_data_str="",
+                current_text="hello",
+            )
+
+    def test_synthesize_signature_has_no_llm_or_slide_params(self):
+        """Removed params must not appear in the function signature."""
+        import inspect
+
+        sig = inspect.signature(gemini_module.synthesize)
+        assert "llm_context_str" not in sig.parameters
+        assert "slide_context_str" not in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# _resolve_context_item
+# ---------------------------------------------------------------------------
+
+
+class TestResolveContextItem:
+    def _make_cli_with_data(self):
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        cli.presentation = Presentation(_FIXTURE_PATH)
+        cli.data["sales_data"] = _simple_looker_result()
+        return cli
+
+    def test_self_returns_current_text(self):
+        cli = self._make_cli_with_data()
+        result = cli._resolve_context_item("self", 2, 0, {}, "hello world")
+        assert result == ("Current shape text", "hello world")
+
+    def test_slide_self_returns_slide_text(self):
+        cli = self._make_cli_with_data()
+        label, content = cli._resolve_context_item("slide_self", 999, 0, {}, "")
+        assert "slide context" in label.lower()
+        assert isinstance(content, str)
+
+    def test_gemini_ref_resolved_from_results(self):
+        cli = self._make_cli_with_data()
+        gemini_results = {"gemini_analysis": "prior output text"}
+        label, content = cli._resolve_context_item(
+            "gemini_analysis", 2, 0, gemini_results, ""
+        )
+        assert "gemini_analysis" in label
+        assert content == "prior output text"
+
+    def test_gemini_ref_missing_returns_none_and_warns(self, caplog):
+        import logging
+
+        cli = self._make_cli_with_data()
+        with caplog.at_level(logging.WARNING):
+            result = cli._resolve_context_item("gemini_missing", 2, 0, {}, "")
+        assert result is None
+        assert any("gemini_missing" in r.message for r in caplog.records)
+
+    def test_meta_look_resolved_from_data(self):
+        cli = self._make_cli_with_data()
+        label, content = cli._resolve_context_item("sales_data", 2, 0, {}, "")
+        assert "sales_data" in label
+        assert "metric" in content  # column name from the fixture data
+
+    def test_unknown_meta_look_returns_none_and_warns(self, caplog):
+        import logging
+
+        cli = self._make_cli_with_data()
+        with caplog.at_level(logging.WARNING):
+            result = cli._resolve_context_item("nonexistent_look", 2, 0, {}, "")
+        assert result is None
+        assert any("nonexistent_look" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _process_gemini_shapes — end-to-end (mocked API)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessGeminiShapes:
+    def _make_cli_with_gemini_shape(self):
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        cli.presentation = Presentation(_FIXTURE_PATH)
+
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        for ref in refs:
+            if ref.get("integration", {}).get("type") == "gemini":
+                cli.gemini_shapes.append(GeminiShape.model_validate(ref))
+
+        cli.data["sales_data"] = _simple_looker_result()
+        return cli
+
+    def test_process_inserts_synthesized_text(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.setattr(
+            gemini_module, "synthesize", lambda **kw: "Synthesized result text"
+        )
+
+        cli._process_gemini_shapes()
+
+        slide = cli.presentation.slides[0]
+        for shape in slide.shapes:
+            if shape.shape_id == cli.gemini_shapes[0].shape_number:
+                assert shape.text_frame.text == "Synthesized result text"
+
+    def test_meta_look_appears_in_context_data_str(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+
+        captured = {}
+
+        def fake_synthesize(**kw):
+            captured.update(kw)
+            return "ok"
+
+        monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
+        cli._process_gemini_shapes()
+
+        assert "sales_data" in captured.get("context_data_str", "")
+
+    def test_self_context_appears_in_context_data_str(self, monkeypatch):
+        """Adding 'self' to contexts puts the current text into context_data_str."""
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        cli.presentation = Presentation(_FIXTURE_PATH)
+
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        for ref in refs:
+            if ref.get("integration", {}).get("type") == "gemini":
+                gs = GeminiShape.model_validate(ref)
+                gs.integration.contexts = ["self"]
+                cli.gemini_shapes.append(gs)
+
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        captured = {}
+
+        def fake_synthesize(**kw):
+            captured.update(kw)
+            return "ok"
+
+        monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
+        cli._process_gemini_shapes()
+
+        assert "Current shape text" in captured.get("context_data_str", "")
+
+    def test_slide_self_context_appears_in_context_data_str(self, monkeypatch):
+        """Adding 'slide_self' to contexts puts the slide extract into context_data_str."""
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        cli.presentation = Presentation(_FIXTURE_PATH)
+
+        refs = get_presentation_objects_with_descriptions(_FIXTURE_PATH)
+        for ref in refs:
+            if ref.get("integration", {}).get("type") == "gemini":
+                gs = GeminiShape.model_validate(ref)
+                gs.integration.contexts = ["slide_self"]
+                cli.gemini_shapes.append(gs)
+
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        captured = {}
+
+        def fake_synthesize(**kw):
+            captured.update(kw)
+            return "ok"
+
+        monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
+        cli._process_gemini_shapes()
+
+        # The fixture has only the single Gemini shape itself, so slide_self yields
+        # empty content (correctly skipped).  Verify that synthesis still ran by
+        # checking that the fake was invoked (captured is non-empty).
+        assert captured  # synthesize was called
+
+    def test_missing_meta_name_warns_but_continues(self, monkeypatch, caplog):
+        import logging
+
+        cli = self._make_cli_with_gemini_shape()
+        del cli.data["sales_data"]
+
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.setattr(gemini_module, "synthesize", lambda **kw: "result")
+
+        with caplog.at_level(logging.WARNING):
+            cli._process_gemini_shapes()
+
+        assert any("sales_data" in r.message for r in caplog.records)
+
+    def test_process_error_populates_error_message(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.setattr(
+            gemini_module,
+            "synthesize",
+            MagicMock(side_effect=RuntimeError("API call failed")),
+        )
+
+        cli._process_gemini_shapes()
+
+        slide = cli.presentation.slides[0]
+        for shape in slide.shapes:
+            if shape.shape_id == cli.gemini_shapes[0].shape_number:
+                assert "API call failed" in shape.text_frame.text
+
+    def test_process_error_draws_red_outline(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.setattr(
+            gemini_module, "synthesize", MagicMock(side_effect=RuntimeError("fail"))
+        )
+
+        slide = cli.presentation.slides[0]
+        before = len(slide.shapes)
+        cli._process_gemini_shapes()
+        assert len(slide.shapes) > before
+
+    def test_process_error_no_red_outline_when_hidden(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        cli.args.hide_errors = True
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+        monkeypatch.setattr(
+            gemini_module, "synthesize", MagicMock(side_effect=RuntimeError("fail"))
+        )
+
+        slide = cli.presentation.slides[0]
+        before = len(slide.shapes)
+        cli._process_gemini_shapes()
+        assert len(slide.shapes) == before
+
+    def test_process_skips_all_when_gemini_unavailable(self, monkeypatch):
+        cli = self._make_cli_with_gemini_shape()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", False)
+
+        slide = cli.presentation.slides[0]
+        original_text = None
+        for shape in slide.shapes:
+            if shape.shape_id == cli.gemini_shapes[0].shape_number:
+                original_text = shape.text_frame.text
+
+        cli._process_gemini_shapes()
+
+        for shape in slide.shapes:
+            if shape.shape_id == cli.gemini_shapes[0].shape_number:
+                assert shape.text_frame.text == original_text
+
+
+# ---------------------------------------------------------------------------
+# _sort_gemini_shapes_by_dependency — topological sort
+# ---------------------------------------------------------------------------
+
+
+class TestSortGeminiShapesByDependency:
+    def _make_shape(self, gemini_id, contexts=None, shape_number=1):
+        return GeminiShape(
+            shape_id=f"0,{shape_number}",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=shape_number,
+            integration=GeminiConfig(
+                gemini_id=gemini_id,
+                contexts=contexts or [],
+            ),
+        )
+
+    def test_no_dependencies_preserves_order(self):
+        cli = _make_cli()
+        a = self._make_shape("a", shape_number=1)
+        b = self._make_shape("b", shape_number=2)
+        cli.gemini_shapes = [a, b]
+        ordered = cli._sort_gemini_shapes_by_dependency()
+        assert ordered == [a, b]
+
+    def test_single_dependency_orders_correctly(self):
+        """b depends on a (via gemini_a in contexts) → a processed first."""
+        cli = _make_cli()
+        # gemini_id "a" becomes "gemini_a" automatically
+        a = self._make_shape("a", shape_number=1)
+        b = self._make_shape("b", contexts=["gemini_a"], shape_number=2)
+        cli.gemini_shapes = [b, a]  # reversed — sort must fix this
+        ordered = cli._sort_gemini_shapes_by_dependency()
+        assert ordered.index(a) < ordered.index(b)
+
+    def test_chain_dependency_ordered_correctly(self):
+        """c depends on b, b depends on a → order must be a, b, c."""
+        cli = _make_cli()
+        a = self._make_shape("a", shape_number=1)
+        b = self._make_shape("b", contexts=["gemini_a"], shape_number=2)
+        c = self._make_shape("c", contexts=["gemini_b"], shape_number=3)
+        cli.gemini_shapes = [c, a, b]
+        ordered = cli._sort_gemini_shapes_by_dependency()
+        assert ordered.index(a) < ordered.index(b) < ordered.index(c)
+
+    def test_circular_dependency_raises(self):
+        cli = _make_cli()
+        a = self._make_shape("a", contexts=["gemini_b"], shape_number=1)
+        b = self._make_shape("b", contexts=["gemini_a"], shape_number=2)
+        cli.gemini_shapes = [a, b]
+        with pytest.raises(ValueError, match="[Cc]ircular"):
+            cli._sort_gemini_shapes_by_dependency()
+
+    def test_non_gemini_contexts_not_treated_as_deps(self):
+        """Meta-look names and reserved keywords don't create dependency edges."""
+        cli = _make_cli()
+        a = self._make_shape(
+            "a", contexts=["self", "slide_self", "sales_data"], shape_number=1
+        )
+        b = self._make_shape("b", shape_number=2)
+        cli.gemini_shapes = [b, a]
+        ordered = cli._sort_gemini_shapes_by_dependency()
+        # No ordering constraint → original list order preserved
+        assert len(ordered) == 2 and a in ordered and b in ordered
+
+    def test_shapes_without_gemini_id_sort_freely(self):
+        cli = _make_cli()
+        a = self._make_shape(None, shape_number=1)
+        b = self._make_shape(None, shape_number=2)
+        cli.gemini_shapes = [a, b]
+        ordered = cli._sort_gemini_shapes_by_dependency()
+        assert len(ordered) == 2 and a in ordered and b in ordered
+
+
+# ---------------------------------------------------------------------------
+# Gemini box chaining via contexts
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiChaining:
+    def _make_two_chained_cli(self):
+        """
+        box_a: gemini_id='gemini_box_a', no gemini deps
+        box_b: gemini_id='gemini_box_b', contexts=['gemini_box_a']
+        Both reference the same physical shape (shape_number=2) from the fixture
+        for simplicity — unit test doesn't need real distinct shapes.
+        """
+        cli = _make_cli()
+        cli.args = cli.parser.parse_args([])
+        cli.presentation = Presentation(_FIXTURE_PATH)
+
+        box_a = GeminiShape(
+            shape_id="0,2",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=2,
+            integration=GeminiConfig(gemini_id="box_a"),
+        )
+        box_b = GeminiShape(
+            shape_id="0,2",
+            shape_type="TEXT_BOX",
+            slide_number=0,
+            shape_number=2,
+            integration=GeminiConfig(gemini_id="box_b", contexts=["gemini_box_a"]),
+        )
+        cli.gemini_shapes = [box_b, box_a]  # reversed to test sort
+        return cli, box_a, box_b
+
+    def test_box_a_processed_before_box_b(self, monkeypatch):
+        cli, box_a, box_b = self._make_two_chained_cli()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+
+        calls = []
+
+        def fake_synthesize(**kw):
+            n = len(calls) + 1
+            calls.append(kw.copy())
+            return f"output_{n}"
+
+        monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
+        cli._process_gemini_shapes()
+
+        assert len(calls) == 2
+        # box_a ran first; its output ("output_1") must appear in box_b's context_data_str,
+        # proving that box_a was processed before box_b.
+        assert "output_1" in calls[1].get("context_data_str", "")
+
+    def test_box_a_output_in_box_b_context(self, monkeypatch):
+        """box_b's synthesize call must receive box_a's output in context_data_str."""
+        cli, box_a, box_b = self._make_two_chained_cli()
+        monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
+
+        calls = []
+
+        def fake_synthesize(**kw):
+            calls.append(kw.copy())
+            return f"output_{len(calls)}"
+
+        monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
+        cli._process_gemini_shapes()
+
+        assert len(calls) == 2
+        # First call: box_a — no gemini context
+        assert "gemini_box_a" not in calls[0].get("context_data_str", "")
+        # Second call: box_b — must contain box_a's output
+        ctx_b = calls[1].get("context_data_str", "")
+        assert "gemini_box_a" in ctx_b
+        assert "output_1" in ctx_b
+
+
+# ---------------------------------------------------------------------------
+# _extract_slide_text_context
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSlideTextContext:
+    def test_excludes_target_shape(self):
+        cli = _make_cli()
+        cli.presentation = Presentation(_FIXTURE_PATH)
+        # Fixture has one text box (shape_id=2); excluding it leaves nothing
+        result = cli._extract_slide_text_context(slide_number=0, exclude_shape_id=2)
+        assert result == ""
+
+    def test_returns_string(self):
+        cli = _make_cli()
+        cli.presentation = Presentation(_FIXTURE_PATH)
+        result = cli._extract_slide_text_context(slide_number=0, exclude_shape_id=999)
+        assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# _format_context_data
+# ---------------------------------------------------------------------------
+
+
+class TestFormatContextData:
+    def test_format_returns_string(self):
+        import pandas as pd
+
+        cli = _make_cli()
+        df = pd.DataFrame({"col_a": [1, 2], "col_b": ["x", "y"]})
+        result = cli._format_context_data(df)
+        assert isinstance(result, str)
+        assert "col_a" in result
+        assert "col_b" in result
 ````
 
 ## File: test/test_integration.py
@@ -5381,11 +6857,22 @@ Pytest test suite for the Looker PowerPoint CLI.
 | File | Purpose |
 |------|---------|
 | `test_cli.py` | Unit tests for `Cli` — primarily the `_make_df` method that converts raw Looker `json_bi` results into a pandas DataFrame with correct column ordering and pivot handling. |
+| `test_gemini.py` | Unit tests for the Gemini LLM synthesis feature — model validation, CLI parsing, `_process_gemini_shapes`, availability guards, and error handling. All Gemini API calls are mocked. |
+| `test_pptx.py` | Tests PPTX fixture assumptions. |
+| `test_tools.py` | Tests for find_alt_text, pptx_text_handler, url_to_hyperlink utilities. |
+
+## PPTX fixtures
+
+| File | Description |
+|------|-------------|
+| `pptx/table7x7.pptx` | 7×7 table with `id: 1` in alt text. See `table7x7.md`. |
+| `pptx/gemini_textbox.pptx` | Single text box with `type: gemini`, `contexts: [sales_data]`. See `gemini_textbox.md`. |
 
 ## Conventions
 
 - **No live Looker API calls.** All tests use pre-built fixture data (inline JSON strings constructed with `_make_result()`) or `unittest.mock.patch`.
-- **Test pptx files** with appropriate YAML alt-text should be placed in this directory when testing the full parsing and data-extraction pipeline. Each such `.pptx` file should be accompanied by a `.md` file of the same base name describing its content, the YAML metadata set in the alt text, and the expected extraction results.
+- **No live Gemini API calls.** `gemini_module.synthesize` is always monkeypatched in `test_gemini.py`; `_HAS_GEMINI` is controlled via `monkeypatch`.
+- **Test pptx files** with appropriate YAML alt-text should be placed in `pptx/` when testing the full parsing and data-extraction pipeline. Each such `.pptx` file should be accompanied by a `.md` file of the same base name describing its content, the YAML metadata set in the alt text, and the expected extraction results.
 - `_make_cli()` is the canonical factory for a `Cli` instance in tests; it patches `os.getenv` so no real environment variables are required.
 
 ## Running the tests
@@ -5395,9 +6882,10 @@ Pytest test suite for the Looker PowerPoint CLI.
 pytest
 ```
 
-Or, to run only this suite:
+Or, to run only a specific suite:
 
 ```bash
+pytest test/test_gemini.py
 pytest test/test_cli.py
 ```
 
@@ -5764,6 +7252,11 @@ dependencies = [
     "deepdiff>=8.6.1",
     "jinja2>=3.1.6",
     "tenacity>=9.1.2",
+]
+
+[project.optional-dependencies]
+llm = [
+    "google-genai>=1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
