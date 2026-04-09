@@ -146,20 +146,21 @@ class LookerClient:
 
     @staticmethod
     def _post_process_result(
-        result: str,
+        result: str | bytes | None,
         result_format: str,
         q,
         shape_id,
         look_id,
-    ) -> str:
+    ) -> str | bytes | None:
         """Inject ``custom_sorts`` and ``custom_pivots`` into JSON results.
 
         For ``json`` and ``json_bi`` result formats where the parsed value is a
         ``dict``, the query's sort and pivot fields are embedded so that
         downstream consumers can access them without making another API call.
 
-        Returns *result* unchanged for non-JSON formats, ``None`` results, or
-        results whose top-level type is not ``dict``.
+        Returns *result* unchanged for non-JSON formats, ``None`` results,
+        byte results such as image payloads, or results whose top-level type is
+        not ``dict``.
         """
         if result is None or result_format not in ("json", "json_bi"):
             return result
@@ -210,11 +211,11 @@ class LookerClient:
 
     async def make_query(
         self,
-        shape_id: int,
+        shape_id: str,
         filter: Optional[str] = None,
         filter_value: Optional[str] = None,
         filter_overwrites: Optional[dict] = None,
-        id: Optional[int] = None,
+        id: Optional[str | int] = None,
         **kwargs,
     ) -> dict:
         """Fetch a Look, build a query from it, execute it, and return the result.
