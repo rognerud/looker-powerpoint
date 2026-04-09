@@ -1226,7 +1226,7 @@ while preserving the original font and paragraph styling.
 .. note::
 
    If ``google-genai`` is not installed, ``lppt`` still runs normally for all
-   other shapes; Gemini synthesis shapes are silently skipped with a warning.
+   other shapes; Gemini synthesis shapes are skipped with a warning.
    This means the package works without the LLM extra installed.
 
 .. tip::
@@ -2127,46 +2127,42 @@ except importlib.metadata.PackageNotFoundError:
 
 ## File: looker_powerpoint/cli.py
 ````python
-from asyncio import subprocess
+import argparse
+import asyncio
 import collections
 import datetime
-import requests
 import io
+import json
+import logging
+import os
+import re
+import subprocess
+from io import BytesIO
+
+import pandas as pd
+from lxml import etree
+from PIL import Image
+from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
+from pydantic import ValidationError
+from rich.logging import RichHandler
+from rich_argparse import RichHelpFormatter
+import requests
+
+from looker_powerpoint import gemini as gemini_module
+from looker_powerpoint.looker import LookerClient
+from looker_powerpoint.models import LookerShape, GeminiShape
 from looker_powerpoint.tools.find_alt_text import (
     get_presentation_objects_with_descriptions,
 )
-from looker_powerpoint.looker import LookerClient
-from looker_powerpoint.models import LookerShape, GeminiShape
-from looker_powerpoint import gemini as gemini_module
-
 from looker_powerpoint.tools.pptx_text_handler import (
     process_text_field,
     update_text_frame_preserving_formatting,
 )
-from pydantic import ValidationError
-import subprocess
-from pptx.util import Pt
-from pptx.chart.data import CategoryChartData
-import json
-import pandas as pd
-from pptx import Presentation
-from lxml import etree
-import re
-import argparse
-from rich_argparse import RichHelpFormatter
-import logging
-from PIL import Image
-
-from rich.logging import RichHandler
-import os
-import asyncio
-from io import BytesIO
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
-
-import re
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
 
 
 class Cli:
@@ -5397,9 +5393,9 @@ class TestProcessGeminiShapes:
         cli._process_gemini_shapes()
 
         # The fixture has only the single Gemini shape itself, so slide_self yields
-        # empty content (correctly skipped).  Verify that synthesis still ran and the
-        # resolver was reached without error.
-        assert "synthesize" in str(fake_synthesize) or captured  # synthesize was called
+        # empty content (correctly skipped).  Verify that synthesis still ran by
+        # checking that the fake was invoked (captured is non-empty).
+        assert captured  # synthesize was called
 
     def test_missing_meta_name_warns_but_continues(self, monkeypatch, caplog):
         import logging
@@ -5586,16 +5582,20 @@ class TestGeminiChaining:
         cli, box_a, box_b = self._make_two_chained_cli()
         monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
 
-        order = []
+        calls = []
 
         def fake_synthesize(**kw):
-            order.append(kw.get("current_text", ""))
-            return f"result_{len(order)}"
+            n = len(calls) + 1
+            calls.append(kw.copy())
+            return f"output_{n}"
 
         monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
         cli._process_gemini_shapes()
 
-        assert len(order) == 2  # both boxes ran
+        assert len(calls) == 2
+        # box_a ran first; its output ("output_1") must appear in box_b's context_data_str,
+        # proving that box_a was processed before box_b.
+        assert "output_1" in calls[1].get("context_data_str", "")
 
     def test_box_a_output_in_box_b_context(self, monkeypatch):
         """box_b's synthesize call must receive box_a's output in context_data_str."""
