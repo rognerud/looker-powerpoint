@@ -36,7 +36,9 @@ def _json_bi(dimensions, measures, table_calculations, rows):
                 "fields": {
                     "dimensions": [_field(d) for d in dimensions],
                     "measures": [_field(m) for m in measures],
-                    "table_calculations": [_field(t) for t in (table_calculations or [])],
+                    "table_calculations": [
+                        _field(t) for t in (table_calculations or [])
+                    ],
                 }
             },
             "rows": rows,
