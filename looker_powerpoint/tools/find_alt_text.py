@@ -4,6 +4,44 @@ import yaml
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
+# Mapping of "smart" / non-ASCII quote variants to their ASCII equivalents.
+_QUOTE_REPLACEMENTS = {
+    # Double-quote variants → straight double quote
+    "\u201c": '"',  # LEFT DOUBLE QUOTATION MARK  "
+    "\u201d": '"',  # RIGHT DOUBLE QUOTATION MARK "
+    "\u201e": '"',  # DOUBLE LOW-9 QUOTATION MARK „
+    "\u2033": '"',  # DOUBLE PRIME               ″
+    "\u00ab": '"',  # LEFT-POINTING DOUBLE ANGLE  «
+    "\u00bb": '"',  # RIGHT-POINTING DOUBLE ANGLE »
+    # Single-quote / apostrophe variants → straight single quote
+    "\u2018": "'",  # LEFT SINGLE QUOTATION MARK  '
+    "\u2019": "'",  # RIGHT SINGLE QUOTATION MARK '
+    "\u201a": "'",  # SINGLE LOW-9 QUOTATION MARK ‚
+    "\u2032": "'",  # PRIME                       ′
+    "\u0060": "'",  # GRAVE ACCENT                `
+    "\u00b4": "'",  # ACUTE ACCENT                ´
+}
+
+# Build a translation table once for efficient single-pass replacement.
+_QUOTE_TABLE = str.maketrans(_QUOTE_REPLACEMENTS)
+
+
+def cleanse_alt_text(text: str) -> str:
+    """Normalise alternative-text before YAML parsing.
+
+    Replaces typographic / "smart" quote characters with their plain ASCII
+    equivalents so that YAML produced by applications that substitute curly
+    quotes (e.g. macOS, Word, PowerPoint) can still be parsed correctly.
+
+    Args:
+        text: Raw alternative-text string extracted from a shape.
+
+    Returns:
+        The cleansed string with all known fancy quote variants replaced by
+        straight ASCII quotes.
+    """
+    return text.translate(_QUOTE_TABLE)
+
 
 def extract_alt_text(shape):
     """
@@ -13,7 +51,8 @@ def extract_alt_text(shape):
         shape: A Shape object from pptx.
 
     Returns:
-        str: The alternative text description, or None if not found.
+        The YAML-parsed value (typically a dict) from the shape's alternative
+        text, or None if no ``descr`` attribute is present or the text is empty.
     """
     xml_str = shape.element.xml  # get XML string of the shape element
     xml_elem = etree.fromstring(xml_str)  # parse it into an lxml element
@@ -27,7 +66,7 @@ def extract_alt_text(shape):
             descr = cNvPr_elements[0].get("descr")
             if descr:
                 data = yaml.safe_load(
-                    descr  # .lower()
+                    cleanse_alt_text(descr)
                 )  # Use safe_load for untrusted sources
 
                 return data
