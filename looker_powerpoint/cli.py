@@ -1,4 +1,5 @@
 from asyncio import subprocess
+import collections
 import datetime
 import requests
 import io
@@ -556,10 +557,12 @@ class Cli:
                     dependents[id(dep)].append(gs)
                     in_degree[id(gs)] += 1
 
-        queue = [gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0]
+        queue: collections.deque = collections.deque(
+            gs for gs in self.gemini_shapes if in_degree[id(gs)] == 0
+        )
         ordered: list = []
         while queue:
-            node = queue.pop(0)
+            node = queue.popleft()
             ordered.append(node)
             for dependent in dependents[id(node)]:
                 in_degree[id(dependent)] -= 1
@@ -630,6 +633,13 @@ class Cli:
                 current_text = ""
                 if hasattr(current_shape, "text_frame"):
                     current_text = current_shape.text_frame.text
+                else:
+                    logging.warning(
+                        f"Shape {gemini_shape.shape_number} on slide "
+                        f"{gemini_shape.slide_number} has no text_frame; "
+                        "skipping Gemini synthesis."
+                    )
+                    continue
 
                 # Resolve each context entry in order
                 context_parts: list[str] = []
