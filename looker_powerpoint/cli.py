@@ -1,43 +1,39 @@
-from asyncio import subprocess
+import argparse
+import asyncio
 import collections
 import datetime
-import requests
 import io
+import json
+import logging
+import os
+import re
+import subprocess
+from io import BytesIO
+
+import pandas as pd
+from lxml import etree
+from PIL import Image
+from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
+from pydantic import ValidationError
+from rich.logging import RichHandler
+from rich_argparse import RichHelpFormatter
+import requests
+
+from looker_powerpoint import gemini as gemini_module
+from looker_powerpoint.looker import LookerClient
+from looker_powerpoint.models import LookerShape, GeminiShape
 from looker_powerpoint.tools.find_alt_text import (
     get_presentation_objects_with_descriptions,
 )
-from looker_powerpoint.looker import LookerClient
-from looker_powerpoint.models import LookerShape, GeminiShape
-from looker_powerpoint import gemini as gemini_module
-
 from looker_powerpoint.tools.pptx_text_handler import (
     process_text_field,
     update_text_frame_preserving_formatting,
 )
-from pydantic import ValidationError
-import subprocess
-from pptx.util import Pt
-from pptx.chart.data import CategoryChartData
-import json
-import pandas as pd
-from pptx import Presentation
-from lxml import etree
-import re
-import argparse
-from rich_argparse import RichHelpFormatter
-import logging
-from PIL import Image
-
-from rich.logging import RichHandler
-import os
-import asyncio
-from io import BytesIO
 
 NS = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
-
-import re
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
 
 
 class Cli:

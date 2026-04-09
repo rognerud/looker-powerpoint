@@ -485,7 +485,7 @@ while preserving the original font and paragraph styling.
 .. note::
 
    If ``google-genai`` is not installed, ``lppt`` still runs normally for all
-   other shapes; Gemini synthesis shapes are silently skipped with a warning.
+   other shapes; Gemini synthesis shapes are skipped with a warning.
    This means the package works without the LLM extra installed.
 
 .. tip::

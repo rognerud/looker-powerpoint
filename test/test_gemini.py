@@ -440,9 +440,9 @@ class TestProcessGeminiShapes:
         cli._process_gemini_shapes()
 
         # The fixture has only the single Gemini shape itself, so slide_self yields
-        # empty content (correctly skipped).  Verify that synthesis still ran and the
-        # resolver was reached without error.
-        assert "synthesize" in str(fake_synthesize) or captured  # synthesize was called
+        # empty content (correctly skipped).  Verify that synthesis still ran by
+        # checking that the fake was invoked (captured is non-empty).
+        assert captured  # synthesize was called
 
     def test_missing_meta_name_warns_but_continues(self, monkeypatch, caplog):
         import logging
@@ -629,16 +629,20 @@ class TestGeminiChaining:
         cli, box_a, box_b = self._make_two_chained_cli()
         monkeypatch.setattr(gemini_module, "_HAS_GEMINI", True)
 
-        order = []
+        calls = []
 
         def fake_synthesize(**kw):
-            order.append(kw.get("current_text", ""))
-            return f"result_{len(order)}"
+            n = len(calls) + 1
+            calls.append(kw.copy())
+            return f"output_{n}"
 
         monkeypatch.setattr(gemini_module, "synthesize", fake_synthesize)
         cli._process_gemini_shapes()
 
-        assert len(order) == 2  # both boxes ran
+        assert len(calls) == 2
+        # box_a ran first; its output ("output_1") must appear in box_b's context_data_str,
+        # proving that box_a was processed before box_b.
+        assert "output_1" in calls[1].get("context_data_str", "")
 
     def test_box_a_output_in_box_b_context(self, monkeypatch):
         """box_b's synthesize call must receive box_a's output in context_data_str."""
